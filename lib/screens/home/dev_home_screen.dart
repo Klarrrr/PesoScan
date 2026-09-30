@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import '../../core/app_routes.dart';
 import '../../core/money.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/supabase_service.dart';
 
-/// TEMPORARY screen to test theme + settings. Replaced by the real Home in Part 8.
+/// TEMPORARY screen to test theme, settings and the backend.
+/// Replaced by the real Home in Part 8.
 class DevHomeScreen extends StatelessWidget {
   const DevHomeScreen({super.key});
 
@@ -54,6 +56,51 @@ class DevHomeScreen extends StatelessWidget {
           FilledButton(
             onPressed: () => Navigator.pushNamed(context, AppRoutes.history),
             child: const Text('Open a placeholder screen'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              await context.read<SettingsProvider>().setOnboardingDone(false);
+              if (!context.mounted) return;
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                AppRoutes.splash,
+                (_) => false,
+              );
+            },
+            child: const Text('Reset onboarding (dev only)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              // Grab the messenger BEFORE the await (safe use of context).
+              final messenger = ScaffoldMessenger.of(context);
+
+              if (!SupabaseService.isReady) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Supabase is not configured (check env.json)',
+                    ),
+                  ),
+                );
+                return;
+              }
+              try {
+                final free = await SupabaseService.client.rpc(
+                  'username_available',
+                  params: {'name': 'pesoscan_test'},
+                );
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Connected! username_available = $free'),
+                  ),
+                );
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(content: Text('Failed: $e')));
+              }
+            },
+            child: const Text('Test Supabase (dev only)'),
           ),
         ],
       ),
