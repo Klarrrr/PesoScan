@@ -97,6 +97,7 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ),
         child: Stack(
+          fit: StackFit.expand,
           children: [
             // Soft golden glow behind the logo.
             Center(
