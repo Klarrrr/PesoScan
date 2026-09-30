@@ -12,7 +12,8 @@ class MoneyClass {
 
   final MoneyType type;
 
-  /// Short design label shown on the camera overlay ("BSP", "NGC", "Polymer").
+  /// Short design label shown in lists and the breakdown ("BSP", "NGC",
+  /// "NGC Series", "Polymer").
   final String design;
 
   /// Extra detail for the reference guide (Part 18).
@@ -34,7 +35,7 @@ class MoneyClass {
 
   String get shortValue => formatPesoShort(valueCentavos);
 
-  /// "₱5 NGC", used on overlays and in the breakdown table.
+  /// "₱5 NGC", used in the breakdown table and history.
   String get displayName => '$shortValue $design';
 
   String get typeLabel => isCoin ? 'Coin' : 'Bill';
@@ -48,12 +49,12 @@ class MoneyClass {
 }
 
 /// The single source of truth for everything the app can detect.
-/// Order and ids MUST match your dataset labels (Part 21).
+/// Order and ids MUST match your dataset labels (Part 22).
 class MoneyClasses {
   MoneyClasses._();
 
   static const List<MoneyClass> all = [
-    // ---- Coins ----
+    // ---- Coins (ids 1 to 9) ----
     MoneyClass(id: 1, valueCentavos: 5, type: MoneyType.coin, design: 'NGC'),
     MoneyClass(id: 2, valueCentavos: 10, type: MoneyType.coin, design: 'NGC'),
     MoneyClass(
@@ -98,60 +99,53 @@ class MoneyClasses {
       design: 'NGC',
       notes: 'Mabini only',
     ),
-    // ASSUMPTION: id 9 is the P20 coin, id 10 is the P20 bill. Confirm!
     MoneyClass(
       id: 9,
       valueCentavos: 2000,
       type: MoneyType.coin,
-      design: 'NGC Coin',
+      design: 'NGC',
       notes: 'NGC series',
     ),
 
-    // ---- Bills (NGC paper/hybrid) ----
+    // ---- Bills: NGC series (ids 10 to 15) ----
     MoneyClass(
       id: 10,
       valueCentavos: 2000,
       type: MoneyType.bill,
-      design: 'NGC Bill',
-      notes: 'NGC series',
+      design: 'NGC Series',
     ),
     MoneyClass(
       id: 11,
       valueCentavos: 5000,
       type: MoneyType.bill,
-      design: 'NGC',
-      notes: 'NGC series',
+      design: 'NGC Series',
     ),
     MoneyClass(
       id: 12,
       valueCentavos: 10000,
       type: MoneyType.bill,
-      design: 'NGC',
-      notes: 'NGC series',
+      design: 'NGC Series',
     ),
     MoneyClass(
       id: 13,
       valueCentavos: 20000,
       type: MoneyType.bill,
-      design: 'NGC',
-      notes: 'NGC series',
+      design: 'NGC Series',
     ),
     MoneyClass(
       id: 14,
       valueCentavos: 50000,
       type: MoneyType.bill,
-      design: 'NGC',
-      notes: 'NGC series',
+      design: 'NGC Series',
     ),
     MoneyClass(
       id: 15,
       valueCentavos: 100000,
       type: MoneyType.bill,
-      design: 'NGC',
-      notes: 'NGC series',
+      design: 'NGC Series',
     ),
 
-    // ---- Bills (Polymer) ----
+    // ---- Bills: Polymer (ids 16 to 19) ----
     MoneyClass(
       id: 16,
       valueCentavos: 5000,

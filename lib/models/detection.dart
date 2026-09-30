@@ -36,4 +36,21 @@ class Detection {
       box: box ?? this.box,
     );
   }
+
+  /// Convert to a plain Map so it can be stored as JSON text.
+  Map<String, dynamic> toJson() => {
+    'class_id': money.id,
+    'confidence': confidence,
+    'box': [box.left, box.top, box.right, box.bottom],
+  };
+
+  /// Rebuild a Detection from the Map made by toJson().
+  factory Detection.fromJson(Map<String, dynamic> json) {
+    final b = (json['box'] as List).map((e) => (e as num).toDouble()).toList();
+    return Detection(
+      money: MoneyClasses.byId(json['class_id'] as int),
+      confidence: (json['confidence'] as num).toDouble(),
+      box: Rect.fromLTRB(b[0], b[1], b[2], b[3]),
+    );
+  }
 }
