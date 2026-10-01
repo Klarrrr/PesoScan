@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/attempt_limiter.dart';
 import '../services/auth_result.dart';
 import '../services/supabase_service.dart';
 
@@ -10,21 +12,22 @@ import '../services/supabase_service.dart';
 enum AuthStatus { unknown, signedOut, awaitingCode, signedIn }
 
 class AuthProvider extends ChangeNotifier {
-  AuthStatus _status = AuthStatus.signedOut;
+  // What we remember on the phone, so the app works offline after login.
+  static const _kId = 'auth_user_id';
+  static const _kEmail = 'auth_email';
+  static const _kUsername = 'auth_username';
+
+  SharedPreferences? _prefs;
+  AuthStatus _status = AuthStatus.unknown;
   String? _userId;
   String? _username;
   String? _email;
   StreamSubscription<dynamic>? _subscription;
+  final AttemptLimiter _limiter = AttemptLimiter();
 
-  AuthProvider() {
-    if (SupabaseService.isReady) {
-      _syncFromSession();
-      // Supabase tells us whenever someone signs in or out.
-      _subscription = SupabaseService.client.auth.onAuthStateChange.listen(
-        (_) => _syncFromSession(),
-      );
-    }
-  }
+  /// True during a multi-step flow (login code, password reset).
+  /// While true, Supabase session events are ignored.
+  bool _signInInProgress = false;
 
   AuthStatus get status => _status;
   String? get userId => _userId;
@@ -40,23 +43,90 @@ class AuthProvider extends ChangeNotifier {
           'The app is not connected to the server. Check env.json.',
         );
 
-  void _syncFromSession() {
-    final user = _client.auth.currentSession?.user;
-    if (user == null) {
-      _status = AuthStatus.signedOut;
-      _userId = null;
-      _username = null;
-      _email = null;
-    } else {
+  // ---------------------------------------------------------------
+  // Startup: restore a remembered login (works offline)
+  // ---------------------------------------------------------------
+
+  /// Call once in main(), before runApp().
+  Future<void> load() async {
+    _prefs = await SharedPreferences.getInstance();
+
+    final id = _prefs!.getString(_kId);
+    if (id != null) {
       _status = AuthStatus.signedIn;
-      _userId = user.id;
-      _email = user.email;
-      _username = user.userMetadata?['username'] as String?;
+      _userId = id;
+      _email = _prefs!.getString(_kEmail);
+      _username = _prefs!.getString(_kUsername);
+    } else {
+      _status = AuthStatus.signedOut;
+    }
+
+    if (SupabaseService.isReady) {
+      final user = _client.auth.currentSession?.user;
+      if (user != null) await _remember(user);
+      _subscription = _client.auth.onAuthStateChange.listen(_onAuthEvent);
     }
     notifyListeners();
   }
 
-  /// Create an account. Supabase emails a 6-digit code.
+  void _onAuthEvent(dynamic data) {
+    if (_signInInProgress) return;
+    final event = data.event as AuthChangeEvent;
+    final user = (data.session as Session?)?.user;
+
+    if (event == AuthChangeEvent.signedOut) {
+      // Explicit logout, or the server revoked the session.
+      _forget();
+    } else if (user != null &&
+        (event == AuthChangeEvent.signedIn ||
+            event == AuthChangeEvent.tokenRefreshed ||
+            event == AuthChangeEvent.userUpdated)) {
+      _remember(user);
+    }
+    // Note: a null session at startup (offline, expired token) is NOT a logout.
+  }
+
+  Future<void> _remember(User user) async {
+    _status = AuthStatus.signedIn;
+    _userId = user.id;
+    _email = user.email;
+    _username = user.userMetadata?['username'] as String?;
+    notifyListeners();
+
+    await _prefs?.setString(_kId, user.id);
+    await _prefs?.setString(_kEmail, user.email ?? '');
+    await _prefs?.setString(_kUsername, _username ?? '');
+  }
+
+  Future<void> _forget() async {
+    _status = AuthStatus.signedOut;
+    _userId = null;
+    _username = null;
+    _email = null;
+    notifyListeners();
+
+    await _prefs?.remove(_kId);
+    await _prefs?.remove(_kEmail);
+    await _prefs?.remove(_kUsername);
+  }
+
+  String _lockMessage(Duration remaining) =>
+      'Too many attempts. Try again in ${AttemptLimiter.format(remaining)}.';
+
+  Future<AuthResult> _countFailure(String key, String message) async {
+    final left = await _limiter.recordFailure(key);
+    if (left == 0) {
+      return AuthResult.failure(_lockMessage(_limiter.lockDuration));
+    }
+    return AuthResult.failure(
+      '$message $left ${left == 1 ? 'attempt' : 'attempts'} left.',
+    );
+  }
+
+  // ---------------------------------------------------------------
+  // Register and verify the email
+  // ---------------------------------------------------------------
+
   Future<AuthResult> register({
     required String username,
     required String email,
@@ -65,7 +135,6 @@ class AuthProvider extends ChangeNotifier {
     final notReady = _notReady();
     if (notReady != null) return notReady;
     try {
-      // Is the username free? (database function from Part 4)
       final free = await _client.rpc(
         'username_available',
         params: {'name': username},
@@ -77,11 +146,9 @@ class AuthProvider extends ChangeNotifier {
       final response = await _client.auth.signUp(
         email: email,
         password: password,
-        data: {'username': username}, // the database trigger copies this
+        data: {'username': username},
       );
 
-      // With "Confirm email" ON, an already-registered email comes back
-      // as a user with NO identities (Supabase hides that it exists).
       final identities = response.user?.identities;
       if (identities != null && identities.isEmpty) {
         return const AuthResult.failure(
@@ -100,17 +167,30 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     final notReady = _notReady();
     if (notReady != null) return notReady;
+
+    final key = 'signup-code:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
     try {
       final res = await _client.auth.verifyOTP(
         email: email,
         token: code,
         type: OtpType.signup,
       );
-      if (res.session == null) {
+      final user = res.session?.user;
+      if (user == null) {
         return const AuthResult.failure('Could not verify. Please try again.');
       }
-      _syncFromSession();
+      await _limiter.reset(key);
+      _signInInProgress = false;
+      await _remember(user);
       return const AuthResult.success();
+    } on AuthException catch (e) {
+      if (e.code == 'otp_expired') {
+        return _countFailure(key, 'That code is incorrect or has expired.');
+      }
+      return AuthResult.failure(friendlyAuthError(e));
     } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
     }
@@ -127,17 +207,33 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// PART 5 ONLY: checks the password. Part 6 adds the emailed code.
+  // ---------------------------------------------------------------
+  // Two-step login
+  // ---------------------------------------------------------------
+
   Future<AuthResult> login({
     required String email,
     required String password,
   }) async {
     final notReady = _notReady();
     if (notReady != null) return notReady;
+
+    final key = 'login:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
+    _signInInProgress = true;
     try {
       await _client.auth.signInWithPassword(email: email, password: password);
+      await _client.auth.signOut(scope: SignOutScope.local);
+      await _client.auth.signInWithOtp(email: email, shouldCreateUser: false);
+      await _limiter.reset(key);
       return const AuthResult.success();
     } on AuthException catch (e) {
+      _signInInProgress = false;
+      if (e.code == 'invalid_credentials') {
+        return _countFailure(key, 'Incorrect email or password.');
+      }
       if (e.code == 'email_not_confirmed') {
         return const AuthResult.failure(
           'Please verify your email first.',
@@ -146,17 +242,144 @@ class AuthProvider extends ChangeNotifier {
       }
       return AuthResult.failure(friendlyAuthError(e));
     } catch (e) {
+      _signInInProgress = false;
       return AuthResult.failure(friendlyAuthError(e));
     }
   }
 
-  Future<void> logout() async {
-    if (!SupabaseService.isReady) return;
+  Future<AuthResult> verifyLoginCode({
+    required String email,
+    required String code,
+  }) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+
+    final key = 'login-code:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
     try {
-      await _client.auth.signOut();
-    } catch (_) {
-      // Offline: nothing more to do in Part 5. Part 7 handles this properly.
+      final res = await _client.auth.verifyOTP(
+        email: email,
+        token: code,
+        type: OtpType.email,
+      );
+      final user = res.session?.user;
+      if (user == null) {
+        return const AuthResult.failure('Could not sign you in. Try again.');
+      }
+      await _limiter.reset(key);
+      await _limiter.reset('login:$email');
+      _signInInProgress = false;
+      await _remember(user);
+      return const AuthResult.success();
+    } on AuthException catch (e) {
+      if (e.code == 'otp_expired') {
+        return _countFailure(key, 'That code is incorrect or has expired.');
+      }
+      return AuthResult.failure(friendlyAuthError(e));
+    } catch (e) {
+      return AuthResult.failure(friendlyAuthError(e));
     }
+  }
+
+  Future<AuthResult> resendLoginCode(String email) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+    try {
+      await _client.auth.signInWithOtp(email: email, shouldCreateUser: false);
+      return const AuthResult.success();
+    } catch (e) {
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Forgot password (NEW in Part 7)
+  // ---------------------------------------------------------------
+
+  /// Emails a reset code. (Supabase gives the same answer whether or not
+  /// the email has an account, so nobody can probe for registered emails.)
+  Future<AuthResult> forgotPassword(String email) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+    try {
+      await _client.auth.resetPasswordForEmail(email);
+      return const AuthResult.success();
+    } catch (e) {
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  /// Checks the reset code. The user is NOT logged in yet: that only
+  /// happens after they choose a new password.
+  Future<AuthResult> verifyRecoveryCode({
+    required String email,
+    required String code,
+  }) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+
+    final key = 'recovery-code:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
+    _signInInProgress = true;
+    try {
+      final res = await _client.auth.verifyOTP(
+        email: email,
+        token: code,
+        type: OtpType.recovery,
+      );
+      if (res.session == null) {
+        _signInInProgress = false;
+        return const AuthResult.failure('Could not verify. Please try again.');
+      }
+      await _limiter.reset(key);
+      return const AuthResult.success();
+    } on AuthException catch (e) {
+      _signInInProgress = false;
+      if (e.code == 'otp_expired') {
+        return _countFailure(key, 'That code is incorrect or has expired.');
+      }
+      return AuthResult.failure(friendlyAuthError(e));
+    } catch (e) {
+      _signInInProgress = false;
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  /// Saves a new password and logs the user in.
+  /// Also used later by Settings > change password.
+  Future<AuthResult> updatePassword(String newPassword) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+    try {
+      await _client.auth.updateUser(UserAttributes(password: newPassword));
+      _signInInProgress = false;
+      final user = _client.auth.currentUser;
+      if (user != null) await _remember(user);
+      return const AuthResult.success();
+    } catch (e) {
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Logout
+  // ---------------------------------------------------------------
+
+  /// Always signs out on THIS phone, even when offline.
+  Future<void> logout() async {
+    _signInInProgress = false;
+    if (SupabaseService.isReady) {
+      try {
+        await _client.auth.signOut(scope: SignOutScope.local);
+      } catch (_) {
+        // No internet: still log out locally below.
+      }
+    }
+    await _forget();
   }
 
   @override
