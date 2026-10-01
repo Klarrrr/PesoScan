@@ -1,10 +1,14 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_routes.dart';
 import 'core/app_theme.dart';
 import 'providers/auth_provider.dart';
+import 'providers/history_provider.dart';
 import 'providers/settings_provider.dart';
+import 'services/sample_data.dart';
+import 'services/scan_repository.dart';
 import 'services/supabase_service.dart';
 
 Future<void> main() async {
@@ -21,11 +25,19 @@ Future<void> main() async {
   final auth = AuthProvider();
   await auth.load();
 
+  // Saved scans. Debug builds start with sample scans so you can see the
+  // Home design; Part 13 replaces this with real storage.
+  final history = HistoryProvider(
+    InMemoryScanRepository(seed: kDebugMode ? sampleScans() : const []),
+  );
+  await history.load();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider.value(value: auth),
+        ChangeNotifierProvider.value(value: history),
       ],
       child: const PesoScanApp(),
     ),
