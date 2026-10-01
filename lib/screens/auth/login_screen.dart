@@ -68,8 +68,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /// TEMPORARY (Part 5): go straight in.
   /// Part 6 replaces this with the emailed-code step.
+  /// The password was correct and the emailed code has been sent.
   void _onPasswordAccepted(String email) {
-    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
+    openLoginCode(context, email);
   }
 
   @override
