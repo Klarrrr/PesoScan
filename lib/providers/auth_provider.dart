@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/attempt_limiter.dart';
 import '../services/auth_result.dart';
 import '../services/supabase_service.dart';
 
@@ -15,14 +16,19 @@ class AuthProvider extends ChangeNotifier {
   String? _username;
   String? _email;
   StreamSubscription<dynamic>? _subscription;
+  final AttemptLimiter _limiter = AttemptLimiter();
+
+  /// True between "password was correct" and "code was verified".
+  /// While true we ignore Supabase's session events, so the brief
+  /// password session is never mistaken for a real login.
+  bool _signInInProgress = false;
 
   AuthProvider() {
     if (SupabaseService.isReady) {
       _syncFromSession();
-      // Supabase tells us whenever someone signs in or out.
-      _subscription = SupabaseService.client.auth.onAuthStateChange.listen(
-        (_) => _syncFromSession(),
-      );
+      _subscription = SupabaseService.client.auth.onAuthStateChange.listen((_) {
+        if (!_signInInProgress) _syncFromSession();
+      });
     }
   }
 
@@ -56,7 +62,24 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Create an account. Supabase emails a 6-digit code.
+  String _lockMessage(Duration remaining) =>
+      'Too many attempts. Try again in ${AttemptLimiter.format(remaining)}.';
+
+  /// Counts a wrong attempt and builds the message the user sees.
+  Future<AuthResult> _countFailure(String key, String message) async {
+    final left = await _limiter.recordFailure(key);
+    if (left == 0) {
+      return AuthResult.failure(_lockMessage(_limiter.lockDuration));
+    }
+    return AuthResult.failure(
+      '$message $left ${left == 1 ? 'attempt' : 'attempts'} left.',
+    );
+  }
+
+  // ---------------------------------------------------------------
+  // Register (unchanged from Part 5)
+  // ---------------------------------------------------------------
+
   Future<AuthResult> register({
     required String username,
     required String email,
@@ -65,7 +88,6 @@ class AuthProvider extends ChangeNotifier {
     final notReady = _notReady();
     if (notReady != null) return notReady;
     try {
-      // Is the username free? (database function from Part 4)
       final free = await _client.rpc(
         'username_available',
         params: {'name': username},
@@ -77,11 +99,9 @@ class AuthProvider extends ChangeNotifier {
       final response = await _client.auth.signUp(
         email: email,
         password: password,
-        data: {'username': username}, // the database trigger copies this
+        data: {'username': username},
       );
 
-      // With "Confirm email" ON, an already-registered email comes back
-      // as a user with NO identities (Supabase hides that it exists).
       final identities = response.user?.identities;
       if (identities != null && identities.isEmpty) {
         return const AuthResult.failure(
@@ -100,6 +120,11 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     final notReady = _notReady();
     if (notReady != null) return notReady;
+
+    final key = 'signup-code:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
     try {
       final res = await _client.auth.verifyOTP(
         email: email,
@@ -109,8 +134,15 @@ class AuthProvider extends ChangeNotifier {
       if (res.session == null) {
         return const AuthResult.failure('Could not verify. Please try again.');
       }
+      await _limiter.reset(key);
+      _signInInProgress = false;
       _syncFromSession();
       return const AuthResult.success();
+    } on AuthException catch (e) {
+      if (e.code == 'otp_expired') {
+        return _countFailure(key, 'That code is incorrect or has expired.');
+      }
+      return AuthResult.failure(friendlyAuthError(e));
     } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
     }
@@ -127,17 +159,40 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// PART 5 ONLY: checks the password. Part 6 adds the emailed code.
+  // ---------------------------------------------------------------
+  // Two-step login (NEW in Part 6)
+  // ---------------------------------------------------------------
+
+  /// Step 1 and 2: check the password, then email a login code.
+  /// Success means "the code was sent", NOT "you are logged in".
   Future<AuthResult> login({
     required String email,
     required String password,
   }) async {
     final notReady = _notReady();
     if (notReady != null) return notReady;
+
+    final key = 'login:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
+    _signInInProgress = true;
     try {
+      // Check the password...
       await _client.auth.signInWithPassword(email: email, password: password);
+      // ...then throw that session away. Real login comes after the code.
+      await _client.auth.signOut(scope: SignOutScope.local);
+      // Email the code (never creates a new account).
+      await _client.auth.signInWithOtp(email: email, shouldCreateUser: false);
+
+      await _limiter.reset(key);
       return const AuthResult.success();
     } on AuthException catch (e) {
+      _signInInProgress = false;
+      _syncFromSession();
+      if (e.code == 'invalid_credentials') {
+        return _countFailure(key, 'Incorrect email or password.');
+      }
       if (e.code == 'email_not_confirmed') {
         return const AuthResult.failure(
           'Please verify your email first.',
@@ -146,16 +201,66 @@ class AuthProvider extends ChangeNotifier {
       }
       return AuthResult.failure(friendlyAuthError(e));
     } catch (e) {
+      _signInInProgress = false;
+      _syncFromSession();
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  /// Step 3: the user typed the code from the email.
+  Future<AuthResult> verifyLoginCode({
+    required String email,
+    required String code,
+  }) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+
+    final key = 'login-code:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
+    try {
+      final res = await _client.auth.verifyOTP(
+        email: email,
+        token: code,
+        type: OtpType.email,
+      );
+      if (res.session == null) {
+        return const AuthResult.failure('Could not sign you in. Try again.');
+      }
+      await _limiter.reset(key);
+      await _limiter.reset('login:$email');
+      _signInInProgress = false;
+      _syncFromSession();
+      return const AuthResult.success();
+    } on AuthException catch (e) {
+      if (e.code == 'otp_expired') {
+        return _countFailure(key, 'That code is incorrect or has expired.');
+      }
+      return AuthResult.failure(friendlyAuthError(e));
+    } catch (e) {
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  Future<AuthResult> resendLoginCode(String email) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+    try {
+      await _client.auth.signInWithOtp(email: email, shouldCreateUser: false);
+      return const AuthResult.success();
+    } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
     }
   }
 
   Future<void> logout() async {
+    _signInInProgress = false;
     if (!SupabaseService.isReady) return;
     try {
       await _client.auth.signOut();
     } catch (_) {
-      // Offline: nothing more to do in Part 5. Part 7 handles this properly.
+      // Offline: Part 7 handles this properly.
     }
   }
 
