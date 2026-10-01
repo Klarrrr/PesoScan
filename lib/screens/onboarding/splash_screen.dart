@@ -1,5 +1,8 @@
 import 'dart:math';
 
+// ignore: unused_import
+import '../../providers/auth_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -70,12 +73,19 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     final done = context.read<SettingsProvider>().onboardingDone;
-    // First run: permission -> onboarding. Afterwards: straight to the app
-    // (Part 7 puts the login check here).
-    Navigator.pushReplacementNamed(
-      context,
-      done ? AppRoutes.home : AppRoutes.permission,
-    );
+    final signedIn = context.read<AuthProvider>().isSignedIn;
+
+    // First run: permission -> onboarding -> login.
+    // Later runs: home if logged in, otherwise the login screen.
+    final String next;
+    if (!done) {
+      next = AppRoutes.permission;
+    } else if (signedIn) {
+      next = AppRoutes.home;
+    } else {
+      next = AppRoutes.login;
+    }
+    Navigator.pushReplacementNamed(context, next);
   }
 
   @override
