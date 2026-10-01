@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../screens/auth/code_entry_screen.dart';
+import '../screens/auth/forgot_password_screen.dart';
 import '../screens/auth/login_screen.dart';
+import '../screens/auth/new_password_screen.dart';
 import '../screens/auth/register_screen.dart';
 import '../screens/home/dev_home_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
@@ -14,7 +16,7 @@ import '../widgets/placeholder_screen.dart';
 class AppRoutes {
   AppRoutes._();
 
-  /// Lets code OUTSIDE a screen navigate (used in Part 7).
+  /// Lets code OUTSIDE a screen navigate (used by the auth guard in main.dart).
   static final navigatorKey = GlobalKey<NavigatorState>();
 
   static const splash = '/splash';
@@ -35,8 +37,6 @@ class AppRoutes {
   static const help = '/help';
   static const settings = '/settings';
 
-  /// Called by MaterialApp whenever we navigate to a named route.
-  /// In later parts we replace each placeholder with the real screen.
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     Widget screen;
     switch (settings.name) {
@@ -50,6 +50,10 @@ class AppRoutes {
         screen = const LoginScreen();
       case register:
         screen = const RegisterScreen();
+      case forgotPassword:
+        screen = const ForgotPasswordScreen();
+      case newPassword:
+        screen = const NewPasswordScreen();
       case codeEntry:
         final args = settings.arguments;
         screen = args is CodeEntryArgs

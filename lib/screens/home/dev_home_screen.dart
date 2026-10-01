@@ -112,15 +112,7 @@ class DevHomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           OutlinedButton(
-            onPressed: () async {
-              await context.read<AuthProvider>().logout();
-              if (!context.mounted) return;
-              Navigator.pushNamedAndRemoveUntil(
-                context,
-                AppRoutes.login,
-                (_) => false,
-              );
-            },
+            onPressed: () => context.read<AuthProvider>().logout(),
             child: const Text('Log out (dev only)'),
           ),
         ],
