@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+// ignore: unused_import
+import '../../providers/auth_provider.dart';
+
 import '../../core/app_routes.dart';
 import '../../core/money.dart';
 import '../../providers/settings_provider.dart';
@@ -101,6 +104,24 @@ class DevHomeScreen extends StatelessWidget {
               }
             },
             child: const Text('Test Supabase (dev only)'),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Signed in as: ${context.watch<AuthProvider>().username ?? '-'}',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              await context.read<AuthProvider>().logout();
+              if (!context.mounted) return;
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                AppRoutes.login,
+                (_) => false,
+              );
+            },
+            child: const Text('Log out (dev only)'),
           ),
         ],
       ),

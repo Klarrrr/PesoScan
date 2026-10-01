@@ -89,7 +89,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _finish() async {
     await context.read<SettingsProvider>().setOnboardingDone(true);
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, AppRoutes.home);
+    Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   void _next() {
