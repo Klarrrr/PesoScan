@@ -42,3 +42,22 @@ void openLoginCode(BuildContext context, String email) {
     ),
   );
 }
+
+/// Opens the code screen for "forgot password".
+void openRecoveryCode(BuildContext context, String email) {
+  final auth = context.read<AuthProvider>();
+  Navigator.pushNamed(
+    context,
+    AppRoutes.codeEntry,
+    arguments: CodeEntryArgs(
+      title: 'Enter Reset Code',
+      subtitle:
+          'If an account exists for $email, we sent a 6-digit code. '
+          'Enter it to choose a new password.',
+      onVerify: (code) => auth.verifyRecoveryCode(email: email, code: code),
+      onResend: () => auth.forgotPassword(email),
+      onSuccess: (ctx) =>
+          Navigator.pushReplacementNamed(ctx, AppRoutes.newPassword),
+    ),
+  );
+}
