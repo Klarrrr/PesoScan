@@ -3,6 +3,9 @@ import 'dart:ui' show Rect;
 import '../core/constants.dart';
 import 'money_class.dart';
 
+/// How sure the model is, in three steps (green / amber / red labels).
+enum ConfidenceLevel { high, medium, low }
+
 /// One coin or bill found in one frame.
 class Detection {
   final MoneyClass money;
@@ -12,7 +15,7 @@ class Detection {
 
   /// Bounding box in NORMALIZED coordinates (0.0 to 1.0 of the frame's
   /// width/height). It works on any screen size; we multiply by the
-  /// screen size only when drawing (Part 10).
+  /// screen size only when drawing.
   final Rect box;
 
   const Detection({
@@ -24,6 +27,16 @@ class Detection {
   int get valueCentavos => money.valueCentavos;
 
   bool get isLowConfidence => confidence < AppConstants.lowConfidenceThreshold;
+
+  ConfidenceLevel get level {
+    if (confidence >= AppConstants.highConfidenceThreshold) {
+      return ConfidenceLevel.high;
+    }
+    if (confidence >= AppConstants.lowConfidenceThreshold) {
+      return ConfidenceLevel.medium;
+    }
+    return ConfidenceLevel.low;
+  }
 
   /// "87%"
   String get confidencePercent => '${(confidence * 100).round()}%';
