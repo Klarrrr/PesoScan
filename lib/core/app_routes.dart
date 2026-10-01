@@ -5,7 +5,8 @@ import '../screens/auth/forgot_password_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/new_password_screen.dart';
 import '../screens/auth/register_screen.dart';
-import '../screens/home/dev_home_screen.dart';
+//import '../screens/home/dev_home_screen.dart';
+import '../screens/shell/main_shell.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/onboarding/permission_screen.dart';
 import '../screens/onboarding/splash_screen.dart';
@@ -60,7 +61,7 @@ class AppRoutes {
             ? CodeEntryScreen(args: args)
             : const PlaceholderScreen(title: 'Missing code details');
       case home:
-        screen = const DevHomeScreen();
+        screen = const MainShell();
       default:
         screen = PlaceholderScreen(title: settings.name ?? 'Unknown');
     }
