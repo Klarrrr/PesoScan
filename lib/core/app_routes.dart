@@ -11,6 +11,8 @@ import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/onboarding/permission_screen.dart';
 import '../screens/onboarding/splash_screen.dart';
 import '../widgets/placeholder_screen.dart';
+// ignore: unused_import
+import '../screens/scanner/scanner_screen.dart';
 
 /// Every screen has a name. Navigate with:
 ///   Navigator.pushNamed(context, AppRoutes.history);
@@ -51,6 +53,8 @@ class AppRoutes {
         screen = const LoginScreen();
       case register:
         screen = const RegisterScreen();
+      case scanner:
+        screen = const ScannerScreen();
       case forgotPassword:
         screen = const ForgotPasswordScreen();
       case newPassword:
