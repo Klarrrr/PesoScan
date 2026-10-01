@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../screens/auth/code_entry_screen.dart';
+import '../screens/auth/login_screen.dart';
+import '../screens/auth/register_screen.dart';
 import '../screens/home/dev_home_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/onboarding/permission_screen.dart';
@@ -11,12 +14,17 @@ import '../widgets/placeholder_screen.dart';
 class AppRoutes {
   AppRoutes._();
 
+  /// Lets code OUTSIDE a screen navigate (used in Part 7).
+  static final navigatorKey = GlobalKey<NavigatorState>();
+
   static const splash = '/splash';
   static const onboarding = '/onboarding';
   static const permission = '/permission';
   static const login = '/login';
   static const register = '/register';
-  static const verifyCode = '/verify-code';
+  static const codeEntry = '/code';
+  static const forgotPassword = '/forgot-password';
+  static const newPassword = '/new-password';
   static const home = '/home';
   static const scanner = '/scanner';
   static const scanResult = '/scan-result';
@@ -38,6 +46,15 @@ class AppRoutes {
         screen = const OnboardingScreen();
       case permission:
         screen = const CameraPermissionScreen();
+      case login:
+        screen = const LoginScreen();
+      case register:
+        screen = const RegisterScreen();
+      case codeEntry:
+        final args = settings.arguments;
+        screen = args is CodeEntryArgs
+            ? CodeEntryScreen(args: args)
+            : const PlaceholderScreen(title: 'Missing code details');
       case home:
         screen = const DevHomeScreen();
       default:
