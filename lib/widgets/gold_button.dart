@@ -3,12 +3,19 @@ import 'package:flutter/material.dart';
 import '../core/app_colors.dart';
 import '../core/app_theme.dart';
 
-/// The big gold gradient button ("Next", "Get Started", "Allow Camera Access").
+/// The big gold gradient button ("Next", "Get Started", "Log In").
+/// While `loading` is true it shows a spinner and ignores taps.
 class GoldButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
+  final bool loading;
 
-  const GoldButton({super.key, required this.label, required this.onPressed});
+  const GoldButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -26,20 +33,29 @@ class GoldButton extends StatelessWidget {
           ),
           child: InkWell(
             borderRadius: radius,
-            onTap: onPressed,
+            onTap: loading ? null : onPressed,
             child: SizedBox(
               height: 56,
               width: double.infinity,
               child: Center(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontFamily: AppFonts.heading,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 16,
-                    color: c.onGold,
-                  ),
-                ),
+                child: loading
+                    ? SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: c.onGold,
+                        ),
+                      )
+                    : Text(
+                        label,
+                        style: TextStyle(
+                          fontFamily: AppFonts.heading,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: c.onGold,
+                        ),
+                      ),
               ),
             ),
           ),
