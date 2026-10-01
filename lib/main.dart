@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+// ignore: unused_import
+import 'package:flutter/services.dart';
+
 import 'core/app_routes.dart';
 import 'core/app_theme.dart';
 import 'providers/auth_provider.dart';
@@ -13,7 +16,8 @@ import 'services/supabase_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  // The scanner is designed for portrait.
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   // Load saved settings BEFORE the first screen so the theme doesn't flash.
   final settings = SettingsProvider();
   await settings.load();
