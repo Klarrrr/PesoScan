@@ -3,17 +3,26 @@ import 'dart:io' show Platform;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
+import '../../models/detection.dart';
+import '../../models/scan_record.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/history_provider.dart';
 import '../../providers/scanner_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../services/detector/detector_factory.dart';
 import '../../services/detector/money_detector.dart';
+import '../../services/feedback_service.dart';
 import '../../services/permission_service.dart';
+import '../../services/scan_image_store.dart';
 import 'detection_overlay.dart';
+import 'scan_result_sheet.dart';
 import 'scanner_widgets.dart';
 
-/// Pages 7-8 of the prototype: live camera + detections + live total.
+/// Pages 7-9 of the prototype: live camera, detections, capture and result.
 class ScannerScreen extends StatelessWidget {
   const ScannerScreen({super.key});
 
@@ -38,12 +47,15 @@ class _ScannerView extends StatefulWidget {
 
 class _ScannerViewState extends State<_ScannerView>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  final ScanImageStore _imageStore = ScanImageStore();
+
   CameraController? _controller;
   String? _cameraError;
   bool _permissionProblem = false;
   bool _torchOn = false;
   bool _initializing = false;
   bool _streaming = false;
+  bool _capturing = false;
   late final AnimationController _scanLine;
 
   @override
@@ -54,6 +66,17 @@ class _ScannerViewState extends State<_ScannerView>
       vsync: this,
       duration: const Duration(milliseconds: 2600),
     )..repeat(reverse: true);
+
+    // Vibrate and ding when a coin or bill is locked in.
+    context.read<ScannerProvider>().onItemsLocked = (_) {
+      if (!mounted) return;
+      final settings = context.read<SettingsProvider>();
+      FeedbackService.instance.itemLocked(
+        haptic: settings.hapticEnabled,
+        audio: settings.audioEnabled,
+      );
+    };
+
     _initCamera();
   }
 
@@ -74,6 +97,10 @@ class _ScannerViewState extends State<_ScannerView>
       _initCamera();
     }
   }
+
+  // ---------------------------------------------------------------
+  // Camera
+  // ---------------------------------------------------------------
 
   Future<void> _initCamera() async {
     if (_initializing || _controller != null) return;
@@ -132,6 +159,7 @@ class _ScannerViewState extends State<_ScannerView>
 
   /// Hand every camera frame to the scanner provider.
   Future<void> _startStream(CameraController controller) async {
+    if (_streaming) return;
     final scanner = context.read<ScannerProvider>();
     try {
       await controller.startImageStream((CameraImage image) {
@@ -177,6 +205,137 @@ class _ScannerViewState extends State<_ScannerView>
       );
     }
   }
+
+  // ---------------------------------------------------------------
+  // Capture -> result sheet -> save or discard
+  // ---------------------------------------------------------------
+
+  Future<void> _capture() async {
+    final controller = _controller;
+    final scanner = context.read<ScannerProvider>();
+    final settings = context.read<SettingsProvider>();
+    if (_capturing ||
+        controller == null ||
+        !scanner.isLive ||
+        scanner.isFrozen) {
+      return;
+    }
+    _capturing = true;
+
+    String? tempPath;
+    try {
+      // 1. Freeze the count FIRST, so the sheet shows exactly what gets saved.
+      final frozen = scanner.freeze();
+      FeedbackService.instance.captured(haptic: settings.hapticEnabled);
+
+      // 2. Take the photo and pause the picture.
+      tempPath = await _takePhoto(controller);
+      if (!mounted) {
+        await _imageStore.delete(tempPath);
+        return;
+      }
+
+      // 3. Ask what to do with it.
+      final action = await ScanResultSheet.show(context, frozen);
+      if (!mounted) {
+        await _imageStore.delete(tempPath);
+        return;
+      }
+
+      if (action == ResultAction.save) {
+        await _save(frozen, tempPath);
+      } else {
+        await _imageStore.delete(tempPath);
+      }
+
+      // 4. Keep scanning.
+      if (mounted) await _resumeLive();
+    } finally {
+      _capturing = false;
+    }
+  }
+
+  /// Returns the temporary photo's path, or null if the photo failed
+  /// (the count is still kept in that case).
+  Future<String?> _takePhoto(CameraController controller) async {
+    try {
+      // Some phones cannot stream frames and take a photo at the same time.
+      if (_streaming) {
+        await controller.stopImageStream();
+        _streaming = false;
+      }
+      final photo = await controller.takePicture();
+      await controller.pausePreview(); // the picture "freezes"
+      return photo.path;
+    } catch (e) {
+      debugPrint('Taking the photo failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> _save(List<Detection> detections, String? tempPath) async {
+    // Read everything we need from the context BEFORE the first await.
+    final history = context.read<HistoryProvider>();
+    final userId = context.read<AuthProvider>().userId;
+    final settings = context.read<SettingsProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final id = const Uuid().v4();
+
+    var imagePath = '';
+    if (tempPath != null) {
+      try {
+        imagePath = await _imageStore.save(tempPath: tempPath, scanId: id);
+      } catch (e) {
+        debugPrint('Saving the photo failed: $e');
+      }
+    }
+
+    try {
+      await history.add(
+        ScanRecord(
+          id: id,
+          createdAt: DateTime.now(),
+          imagePath: imagePath,
+          detections: detections,
+          userId: userId,
+        ),
+      );
+      FeedbackService.instance.saved(
+        haptic: settings.hapticEnabled,
+        audio: settings.audioEnabled,
+      );
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            imagePath.isEmpty
+                ? 'Saved to history (without a photo).'
+                : 'Saved to history.',
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Saving the scan failed: $e');
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not save the scan. Please try again.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _resumeLive() async {
+    final controller = _controller;
+    final scanner = context.read<ScannerProvider>();
+    try {
+      await controller?.resumePreview();
+    } catch (_) {}
+    scanner.resume();
+    if (controller != null) await _startStream(controller);
+  }
+
+  // ---------------------------------------------------------------
+  // Screen
+  // ---------------------------------------------------------------
 
   /// Width / height of the UPRIGHT frame. previewSize is landscape, so
   /// the portrait aspect is height / width.
@@ -275,21 +434,16 @@ class _ScannerViewState extends State<_ScannerView>
             ),
           ),
           Consumer<ScannerProvider>(
-            builder: (context, scanner, _) => ScannerControlBar(
-              torchOn: _torchOn,
-              onTorch: _toggleTorch,
-              captureEnabled: scanner.isLive,
-              onCapture: scanner.isLive
-                  ? () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Freeze and the result sheet arrive in Part 11.',
-                        ),
-                      ),
-                    )
-                  : null,
-              onReset: scanner.reset,
-            ),
+            builder: (context, scanner, _) {
+              final canCapture = scanner.isLive && !scanner.isFrozen;
+              return ScannerControlBar(
+                torchOn: _torchOn,
+                onTorch: _toggleTorch,
+                captureEnabled: canCapture,
+                onCapture: canCapture ? _capture : null,
+                onReset: scanner.reset,
+              );
+            },
           ),
         ],
       ),
