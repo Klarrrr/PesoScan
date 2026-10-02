@@ -1,3 +1,5 @@
+// ignore_for_file: unused_import
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -12,30 +14,287 @@ import '../../models/detection.dart';
 import '../../models/scan_record.dart';
 import '../../widgets/screen_header.dart';
 
+import '../../services/scan_exporter.dart';
+import '../../widgets/auth_scaffold.dart' show BrandLogo;
+
 /// Page 11 of the prototype.
-class ScanDetailScreen extends StatelessWidget {
+/// Page 11 of the prototype, plus Share / Save / Copy (Part 16).
+
+/// Page 11 of the prototype, plus Share / Save / Copy (Part 16).
+class ScanDetailScreen extends StatefulWidget {
   final ScanRecord record;
-  const ScanDetailScreen({super.key, required this.record});
+
+  /// Tests pass an exporter with fake actions; the app uses the real one.
+  final ScanExporter? exporter;
+
+  const ScanDetailScreen({super.key, required this.record, this.exporter});
+
+  @override
+  State<ScanDetailScreen> createState() => _ScanDetailScreenState();
+}
+
+class _ScanDetailScreenState extends State<ScanDetailScreen> {
+  // Marks the part of the screen that becomes the exported picture.
+  final GlobalKey _cardKey = GlobalKey();
+  late final ScanExporter _exporter = widget.exporter ?? ScanExporter();
+
+  /// 'share' | 'save' | 'copy' while one is running, otherwise null.
+  String? _busy;
+
+  Future<void> _run(
+    String action,
+    Future<ExportOutcome> Function() work,
+  ) async {
+    if (_busy != null) return; // ignore taps while one is running
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = action);
+
+    String message = '';
+    try {
+      final outcome = await work();
+      message = outcome.message;
+    } catch (e) {
+      if (e is ExportException) {
+        message = e.message;
+      } else {
+        message = 'Something went wrong. Please try again.';
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = null);
+      }
+    }
+
+    if (!mounted) return;
+
+    if (message.isNotEmpty) {
+      messenger.removeCurrentSnackBar(); // clears existing snackbar immediately
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior:
+              SnackBarBehavior.floating, // floats cleanly so gestures pass
+          duration: const Duration(milliseconds: 1500),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+    final record = widget.record;
+
     return Scaffold(
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-          children: [
-            ScreenHeader(
-              title: 'Scan Detail',
-              subtitle: DateFormat('EEEE, MMMM d, yyyy')
-                  .format(record.createdAt),
+        // A plain scroll view (not ListView) builds everything at once, so
+        // the whole card exists and can be photographed.
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 100),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ScreenHeader(
+                  title: 'Scan Detail',
+                  subtitle: DateFormat('EEEE, MMMM d, yyyy')
+                      .format(record.createdAt),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Everything inside this RepaintBoundary is what gets exported.
+              RepaintBoundary(
+                key: _cardKey,
+                child: Container(
+                  color: c.background, // solid, so the PNG is not see-through
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _BrandRow(when: record.createdAt),
+                      const SizedBox(height: 14),
+                      _ScanPhoto(record: record),
+                      const SizedBox(height: 14),
+                      _SummaryCard(record: record),
+                      const SizedBox(height: 14),
+                      _ItemsTable(record: record),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Counted with PesoScan. For counting only: it cannot '
+                        'tell real money from fake.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _ExportButton(
+                        key: const Key('btn-share'),
+                        icon: Icons.ios_share_rounded,
+                        label: 'Share',
+                        busy: _busy == 'share',
+                        enabled: _busy == null,
+                        onTap: () => _run(
+                          'share',
+                          () => _exporter.share(_cardKey, record),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ExportButton(
+                        key: const Key('btn-save'),
+                        icon: Icons.download_rounded,
+                        label: 'Save',
+                        busy: _busy == 'save',
+                        enabled: _busy == null,
+                        onTap: () => _run(
+                          'save',
+                          () => _exporter.saveToDevice(_cardKey, record),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ExportButton(
+                        key: const Key('btn-copy'),
+                        icon: Icons.copy_rounded,
+                        label: 'Copy total',
+                        busy: _busy == 'copy',
+                        enabled: _busy == null,
+                        onTap: () =>
+                            _run('copy', () => _exporter.copyTotal(record)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Logo, name and date at the top of the exported picture.
+class _BrandRow extends StatelessWidget {
+  final DateTime when;
+  const _BrandRow({required this.when});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+
+    return Row(
+      children: [
+        const BrandLogo(size: 28),
+        const SizedBox(width: 8),
+        Text.rich(
+          TextSpan(
+            style: const TextStyle(
+              fontFamily: AppFonts.heading,
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
             ),
-            const SizedBox(height: 18),
-            _ScanPhoto(record: record),
-            const SizedBox(height: 16),
-            _SummaryCard(record: record),
-            const SizedBox(height: 16),
-            _ItemsTable(record: record),
-          ],
+            children: [
+              TextSpan(
+                text: 'Peso',
+                style: TextStyle(color: c.textPrimary),
+              ),
+              TextSpan(
+                text: 'Scan',
+                style: TextStyle(color: c.gold),
+              ),
+            ],
+          ),
+        ),
+        const Spacer(),
+        Flexible(
+          child: Text(
+            DateFormat('MMM d, yyyy · hh:mm a').format(when),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            style: AppText.mono(
+              size: 11,
+              weight: FontWeight.w400,
+              color: c.textMuted,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ExportButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool busy;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _ExportButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.busy,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+
+    return Opacity(
+      opacity: (enabled || busy) ? 1 : 0.5,
+      child: Material(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: enabled && !busy ? onTap : null,
+          child: Container(
+            height: 68,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: c.border),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                busy
+                    ? SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: c.gold,
+                        ),
+                      )
+                    : Icon(icon, color: c.gold, size: 24),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: c.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
