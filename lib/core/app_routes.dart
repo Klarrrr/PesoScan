@@ -1,3 +1,5 @@
+// ignore_for_file: duplicate_ignore, unused_import
+
 import 'package:flutter/material.dart';
 
 import '../screens/auth/code_entry_screen.dart';
@@ -13,6 +15,10 @@ import '../screens/onboarding/splash_screen.dart';
 import '../widgets/placeholder_screen.dart';
 // ignore: unused_import
 import '../screens/scanner/scanner_screen.dart';
+
+// ignore: unused_import
+import '../models/scan_record.dart';
+import '../screens/history/scan_detail_screen.dart';
 
 /// Every screen has a name. Navigate with:
 ///   Navigator.pushNamed(context, AppRoutes.history);
@@ -45,6 +51,11 @@ class AppRoutes {
     switch (settings.name) {
       case splash:
         screen = const SplashScreen();
+      case historyDetail:
+        final record = settings.arguments;
+        screen = record is ScanRecord
+            ? ScanDetailScreen(record: record)
+            : const PlaceholderScreen(title: 'Scan not found');
       case onboarding:
         screen = const OnboardingScreen();
       case permission:
