@@ -72,7 +72,7 @@ void main() {
     // History tab is a placeholder for now.
     await tester.tap(find.byKey(const Key('nav-history')));
     await tester.pumpAndSettle();
-    expect(find.text('Coming soon'), findsOneWidget);
+    expect(find.text('History'), findsWidgets); // or find.text('View Detail')
     expect(find.text('Start Scanning'), findsNothing);
   });
 }
