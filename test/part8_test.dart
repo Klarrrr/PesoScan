@@ -27,7 +27,6 @@ void main() {
       startsWith('Sep 25, '),
     );
   });
-
   test('sample scans compute their totals from the coins', () {
     final scans = sampleScans(now: DateTime(2026, 10, 1));
     expect(scans.length, 4);
@@ -45,8 +44,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsProvider();
     await settings.load();
+    final auth = AuthProvider();
     final history = HistoryProvider(
       InMemoryScanRepository(seed: sampleScans()),
+      auth,
     );
     await history.load();
 
@@ -55,7 +56,7 @@ void main() {
         providers: [
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: history),
-          ChangeNotifierProvider(create: (_) => AuthProvider()),
+          ChangeNotifierProvider.value(value: auth),
         ],
         child: MaterialApp(theme: AppTheme.dark, home: const MainShell()),
       ),
