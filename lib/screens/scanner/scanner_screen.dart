@@ -235,21 +235,24 @@ class _ScannerViewState extends State<_ScannerView>
         return;
       }
 
-      // 3. Ask what to do with it.
-      final action = await ScanResultSheet.show(context, frozen);
+      // 3. Ask what to do. The user may correct items first.
+      final outcome = await ScanResultSheet.show(context, frozen);
       if (!mounted) {
         await _imageStore.delete(tempPath);
         return;
       }
 
-      if (action == ResultAction.save) {
-        await _save(frozen, tempPath);
-      } else {
-        await _imageStore.delete(tempPath);
+      switch (outcome.action) {
+        case ResultAction.save:
+          await _save(outcome.detections, tempPath); // the corrected list
+          if (mounted) await _resumeLive();
+        case ResultAction.rescan:
+          await _imageStore.delete(tempPath);
+          if (mounted) await _resumeLive();
+        case ResultAction.discard:
+          await _imageStore.delete(tempPath);
+          if (mounted) Navigator.pop(context); // leave the scanner
       }
-
-      // 4. Keep scanning.
-      if (mounted) await _resumeLive();
     } finally {
       _capturing = false;
     }
