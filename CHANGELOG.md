@@ -8,6 +8,14 @@ All notable changes to the **PesoScan** project will be documented in this file.
 
 ### Added
 
+- Create v0.4 Scanner complete
+
+---
+
+## [0.3.0] - 2026-10-01
+
+### Added
+
 - Working on real-time coin detection logic.
 
 ---
