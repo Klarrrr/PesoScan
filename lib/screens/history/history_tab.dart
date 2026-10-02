@@ -408,23 +408,26 @@ class _HistoryCard extends StatelessWidget {
                   child: InkWell(
                     onTap: onOpen,
                     child: Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            size: 20,
-                            color: c.textSecondary,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            'View Detail',
-                            style: TextStyle(
-                              fontSize: 14,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              size: 18,
                               color: c.textSecondary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 2),
+                            Text(
+                              'View Detail',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: c.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
