@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../widgets/peso_bottom_bar.dart';
-import '../../widgets/placeholder_screen.dart';
+
 import '../home/dev_home_screen.dart';
 import '../home/home_tab.dart';
 import '../scanner/open_scanner.dart';
+
+import '../history/history_tab.dart';
 
 /// The screen that holds the bottom bar and the three tabs.
 class MainShell extends StatefulWidget {
@@ -36,7 +38,7 @@ class _MainShellState extends State<MainShell> {
                 index: _index,
                 children: [
                   HomeTab(onGoToTab: _goTo),
-                  const PlaceholderScreen(title: 'History'), // Part 13
+                  const HistoryTab(), // Part 13
                   const DevHomeScreen(), // temporary Settings, Part 20
                 ],
               ),

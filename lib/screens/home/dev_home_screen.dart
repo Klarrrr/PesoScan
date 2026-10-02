@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../providers/history_provider.dart';
+import '../../services/sample_data.dart';
+
 // ignore: unused_import
 import '../../providers/auth_provider.dart';
 
@@ -104,6 +107,19 @@ class DevHomeScreen extends StatelessWidget {
               }
             },
             child: const Text('Test Supabase (dev only)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final history = context.read<HistoryProvider>();
+              final userId = context.read<AuthProvider>().userId;
+              await history.addAll(devSampleScans(userId: userId));
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Added 8 sample scans')),
+              );
+            },
+            child: const Text('Add sample scans (dev only)'),
           ),
           const SizedBox(height: 16),
           Text(
