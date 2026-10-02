@@ -133,6 +133,14 @@ class _ScannerViewState extends State<_ScannerView>
       );
       await controller.initialize();
 
+      // Start with the flash definitely OFF. Some phones default to "auto",
+      // which would fire the flash when we take the photo.
+      try {
+        await controller.setFlashMode(FlashMode.off);
+      } catch (_) {
+        // This phone has no flash: nothing to switch off.
+      }
+
       if (!mounted) {
         await controller.dispose();
         return;
@@ -198,7 +206,8 @@ class _ScannerViewState extends State<_ScannerView>
     try {
       await controller.setFlashMode(_torchOn ? FlashMode.off : FlashMode.torch);
       if (mounted) setState(() => _torchOn = !_torchOn);
-    } on CameraException {
+    } catch (_) {
+      // No flash on this device (all emulators), or the camera refused.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Flash is not available on this device.')),
@@ -331,6 +340,10 @@ class _ScannerViewState extends State<_ScannerView>
     final scanner = context.read<ScannerProvider>();
     try {
       await controller?.resumePreview();
+      // Pausing the picture can switch the torch off: put it back if it was on.
+      if (_torchOn && controller != null) {
+        await controller.setFlashMode(FlashMode.torch);
+      }
     } catch (_) {}
     scanner.resume();
     if (controller != null) await _startStream(controller);
