@@ -5,43 +5,51 @@ import '../../models/detection.dart';
 import '../../models/money_class.dart';
 import 'money_detector.dart';
 
-/// A fake detector for development. Each "scene" is either 3-5 coins or
-/// 2-3 bills, with slight box jitter and confidence flicker every frame,
-/// like a real model would produce. Some items get low confidence on
-/// purpose, so we can test the warning UI.
+/// Which kind of scene the fake detector invents.
+/// "crowded" and "edge" exist to test the camera-assistance warnings.
+enum MockScenario { normal, crowded, edge }
+
+/// A fake detector for development. It "sees" a few coins or bills with
+/// slight box jitter and confidence flicker every frame, like a real model.
 class MockDetector implements MoneyDetector {
   final Random _rng;
+  MockScenario scenario;
   List<_MockItem> _items = [];
 
   /// Pass a `seed` to get the same scene every run (useful in tests).
-  MockDetector({int? seed}) : _rng = Random(seed);
+  MockDetector({int? seed, this.scenario = MockScenario.normal})
+    : _rng = Random(seed);
 
-  // Preset coin positions (center x, center y) that don't overlap.
+  // Preset coin positions (centre x, centre y) that keep a healthy gap.
   static const List<(double, double)> _coinSlots = [
     (0.25, 0.28),
     (0.72, 0.28),
     (0.25, 0.68),
     (0.72, 0.68),
-    (0.48, 0.48),
+    (0.50, 0.48),
   ];
 
-  // Bills are wide rectangles stacked in rows (center y).
+  // Bills are wide rectangles stacked in rows (centre y).
   static const List<double> _billRows = [0.2, 0.5, 0.8];
 
   @override
   Future<void> initialize() async => regenerate();
 
-  /// Create a brand-new random scene (coins or bills).
+  /// Create a brand-new scene.
   /// Only the mock has this; the real detector does not.
   void regenerate() {
-    _items = _rng.nextBool() ? _coinScene() : _billScene();
+    _items = switch (scenario) {
+      MockScenario.normal => _rng.nextBool() ? _coinScene() : _billScene(),
+      MockScenario.crowded => _crowdedScene(),
+      MockScenario.edge => _edgeScene(),
+    };
   }
 
   List<_MockItem> _coinScene() {
     final slots = [..._coinSlots]..shuffle(_rng);
     final count = 3 + _rng.nextInt(3); // 3, 4 or 5 coins
     return List.generate(count, (i) {
-      final size = 0.14 + _rng.nextDouble() * 0.06;
+      final size = 0.12 + _rng.nextDouble() * 0.05;
       return _MockItem(
         money: _pick(MoneyClasses.coins),
         cx: slots[i].$1,
@@ -66,6 +74,30 @@ class MockDetector implements MoneyDetector {
       );
     });
   }
+
+  /// Two coins overlapping and a third close by: "too close together".
+  List<_MockItem> _crowdedScene() => [
+    _item(MoneyClasses.coins, 0.40, 0.45, 0.16),
+    _item(MoneyClasses.coins, 0.50, 0.47, 0.16),
+    _item(MoneyClasses.coins, 0.70, 0.62, 0.16),
+  ];
+
+  /// One coin sticking out of the right edge, one touching the left edge.
+  List<_MockItem> _edgeScene() => [
+    _item(MoneyClasses.coins, 0.93, 0.40, 0.16),
+    _item(MoneyClasses.coins, 0.08, 0.70, 0.16),
+    _item(MoneyClasses.coins, 0.50, 0.50, 0.16),
+  ];
+
+  _MockItem _item(List<MoneyClass> pool, double cx, double cy, double size) =>
+      _MockItem(
+        money: _pick(pool),
+        cx: cx,
+        cy: cy,
+        w: size,
+        h: size,
+        baseConfidence: _randomConfidence(),
+      );
 
   MoneyClass _pick(List<MoneyClass> pool) => pool[_rng.nextInt(pool.length)];
 

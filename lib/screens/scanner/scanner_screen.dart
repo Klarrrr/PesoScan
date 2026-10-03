@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
+import '../../core/constants.dart';
 import '../../models/detection.dart';
 import '../../models/scan_record.dart';
 import '../../providers/auth_provider.dart';
@@ -16,13 +17,16 @@ import '../../providers/settings_provider.dart';
 import '../../services/detector/detector_factory.dart';
 import '../../services/detector/money_detector.dart';
 import '../../services/feedback_service.dart';
+import '../../services/frame_analyzer.dart';
 import '../../services/permission_service.dart';
 import '../../services/scan_image_store.dart';
 import 'detection_overlay.dart';
+import 'guidance_widgets.dart';
 import 'scan_result_sheet.dart';
 import 'scanner_widgets.dart';
 
-/// Pages 7-9 of the prototype: live camera, detections, capture and result.
+/// Pages 7-9 of the prototype: live camera, detections, capture and result,
+/// now with scanning tips.
 class ScannerScreen extends StatelessWidget {
   const ScannerScreen({super.key});
 
@@ -48,6 +52,8 @@ class _ScannerView extends StatefulWidget {
 class _ScannerViewState extends State<_ScannerView>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final ScanImageStore _imageStore = ScanImageStore();
+  final FrameAnalyzer _analyzer = FrameAnalyzer();
+  DateTime _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
 
   CameraController? _controller;
   String? _cameraError;
@@ -133,6 +139,11 @@ class _ScannerViewState extends State<_ScannerView>
       );
       await controller.initialize();
 
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
       // Start with the flash definitely OFF. Some phones default to "auto",
       // which would fire the flash when we take the photo.
       try {
@@ -141,14 +152,18 @@ class _ScannerViewState extends State<_ScannerView>
         // This phone has no flash: nothing to switch off.
       }
 
+      // Guard check after the setFlashMode async gap:
       if (!mounted) {
         await controller.dispose();
         return;
       }
+
       setState(() {
         _controller = controller;
         _torchOn = false;
       });
+      context.read<ScannerProvider>().frameAspect = _frameAspect;
+      _analyzer.reset();
       await _startStream(controller);
     } on CameraException catch (e) {
       final denied = e.code.startsWith('CameraAccess');
@@ -165,7 +180,7 @@ class _ScannerViewState extends State<_ScannerView>
     }
   }
 
-  /// Hand every camera frame to the scanner provider.
+  /// Hand every camera frame to the detector, and every few to the analyzer.
   Future<void> _startStream(CameraController controller) async {
     if (_streaming) return;
     final scanner = context.read<ScannerProvider>();
@@ -174,11 +189,31 @@ class _ScannerViewState extends State<_ScannerView>
         scanner.onFrame(
           DetectorFrame(width: image.width, height: image.height, raw: image),
         );
+        _analyze(image, scanner);
       });
       _streaming = true;
     } catch (e) {
       debugPrint('Could not start the image stream: $e');
     }
+  }
+
+  /// Measures light and shaking a few times per second.
+  void _analyze(CameraImage image, ScannerProvider scanner) {
+    final now = DateTime.now();
+    if (now.difference(_lastAnalysis) < AppConstants.analysisInterval) return;
+    _lastAnalysis = now;
+    if (image.planes.isEmpty) return;
+
+    final plane = image.planes.first; // the brightness plane on Android
+    scanner.updateSignals(
+      _analyzer.analyze(
+        bytes: plane.bytes,
+        width: image.width,
+        height: image.height,
+        rowStride: plane.bytesPerRow,
+        pixelStride: plane.bytesPerPixel ?? 1,
+      ),
+    );
   }
 
   void _fail(String message, {bool permission = false}) {
@@ -216,7 +251,7 @@ class _ScannerViewState extends State<_ScannerView>
   }
 
   // ---------------------------------------------------------------
-  // Capture -> result sheet -> save or discard
+  // Capture -> result sheet -> save, rescan or discard
   // ---------------------------------------------------------------
 
   Future<void> _capture() async {
@@ -345,6 +380,7 @@ class _ScannerViewState extends State<_ScannerView>
         await controller.setFlashMode(FlashMode.torch);
       }
     } catch (_) {}
+    _analyzer.reset();
     scanner.resume();
     if (controller != null) await _startStream(controller);
   }
@@ -405,6 +441,11 @@ class _ScannerViewState extends State<_ScannerView>
               children: [
                 _buildPreview(),
                 const GridOverlay(),
+                // The dashed "put your coins here" frame, until items appear.
+                Consumer<ScannerProvider>(
+                  builder: (context, scanner, _) =>
+                      PlacementGuide(visible: hasCamera && scanner.count == 0),
+                ),
                 // Only the overlays rebuild ~10x per second, not the camera.
                 Consumer<ScannerProvider>(
                   builder: (context, scanner, _) => DetectionOverlay(
@@ -432,10 +473,30 @@ class _ScannerViewState extends State<_ScannerView>
                   child: SafeArea(
                     bottom: false,
                     child: Consumer<ScannerProvider>(
-                      builder: (context, scanner, _) => ScannerTopBar(
-                        onBack: () => Navigator.pop(context),
-                        live: scanner.isLive,
-                        count: scanner.count,
+                      builder: (context, scanner, _) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ScannerTopBar(
+                            onBack: () => Navigator.pop(context),
+                            live: scanner.isLive,
+                            count: scanner.count,
+                          ),
+                          const SizedBox(height: 8),
+                          ScanStatusStrip(
+                            signals: scanner.signals,
+                            tips: scanner.tips,
+                            onHelp: () => ScanGuideSheet.show(context),
+                          ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: GuidanceBanner(
+                              tips: scanner.tips,
+                              torchOn: _torchOn,
+                              onTurnOnFlash: _toggleTorch,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
