@@ -10,7 +10,10 @@ import '../../widgets/auth_scaffold.dart';
 import '../../widgets/gold_button.dart';
 
 class NewPasswordScreen extends StatefulWidget {
-  const NewPasswordScreen({super.key});
+  /// True after "forgot password"; false when changing it from Settings.
+  final bool fromReset;
+
+  const NewPasswordScreen({super.key, this.fromReset = true});
 
   @override
   State<NewPasswordScreen> createState() => _NewPasswordScreenState();
