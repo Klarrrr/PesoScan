@@ -8,6 +8,7 @@ import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_scaffold.dart';
 import '../../widgets/gold_button.dart';
 import 'auth_flows.dart';
+import '../../core/app_routes.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -127,9 +128,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Use letters and numbers. By creating an account you agree to '
-          'the Terms of Service and Privacy Policy.',
+          'Use letters and numbers. By creating an account you agree to the:',
           style: text.bodySmall,
+        ),
+        Row(
+          children: [
+            TextButton(
+              onPressed: () => Navigator.pushNamed(context, AppRoutes.terms),
+              child: Text('Terms of Service', style: TextStyle(color: c.gold)),
+            ),
+            Text('&', style: text.bodySmall),
+            TextButton(
+              onPressed: () => Navigator.pushNamed(context, AppRoutes.privacy),
+              child: Text('Privacy Policy', style: TextStyle(color: c.gold)),
+            ),
+          ],
         ),
         const SizedBox(height: 20),
         GoldButton(
