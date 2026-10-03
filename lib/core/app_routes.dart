@@ -20,6 +20,7 @@ import '../screens/scanner/scanner_screen.dart';
 import '../models/scan_record.dart';
 import '../screens/history/scan_detail_screen.dart';
 import '../screens/stats/statistics_screen.dart';
+import '../screens/info/currency_reference_screen.dart';
 
 /// Every screen has a name. Navigate with:
 ///   Navigator.pushNamed(context, AppRoutes.history);
@@ -73,6 +74,8 @@ class AppRoutes {
         screen = const NewPasswordScreen();
       case statistics:
         screen = const StatisticsScreen();
+      case guide:
+        screen = const CurrencyReferenceScreen();
       case codeEntry:
         final args = settings.arguments;
         screen = args is CodeEntryArgs
