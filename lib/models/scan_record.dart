@@ -28,6 +28,17 @@ class ScanRecord {
   int get totalCentavos => math.totalCentavos(detections);
   int get itemCount => detections.length;
 
+  /// A copy with some fields changed (used to remove a photo but keep the scan).
+  ScanRecord copyWith({String? imagePath, List<Detection>? detections}) {
+    return ScanRecord(
+      id: id,
+      userId: userId,
+      createdAt: createdAt,
+      imagePath: imagePath ?? this.imagePath,
+      detections: detections ?? this.detections,
+    );
+  }
+
   /// Row for the SQLite table (Part 13).
   /// total_centavos and item_count are stored separately on purpose:
   /// the Statistics screen can then add them up with one fast SQL query
