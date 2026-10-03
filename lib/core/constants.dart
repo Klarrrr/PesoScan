@@ -15,4 +15,22 @@ class AppConstants {
 
   /// How often the detector may run (about 10 times per second).
   static const Duration detectionInterval = Duration(milliseconds: 100);
+
+  // ---- Camera assistance (Part 17) ----
+  // These are first guesses. Tune them by testing on a real phone.
+
+  /// Average picture brightness: 0 = black, 255 = white.
+  static const double tooDarkBelow = 55;
+  static const double tooBrightAbove = 220;
+
+  /// Average change between two looks at the picture (0 = perfectly still).
+  static const double shakyAbove = 16;
+
+  /// A gap smaller than this share of an item's size counts as "too close".
+  static const double minGapShare = 0.15;
+
+  /// How often the picture is checked for light and shaking.
+  static const Duration analysisInterval = Duration(milliseconds: 250);
+
+  static const String suggestedDistance = '20-30 cm';
 }
