@@ -19,6 +19,21 @@ class ScanImageStore {
     return folder;
   }
 
+  /// Total size in bytes of those files that exist.
+  Future<int> totalSize(Iterable<String> paths) async {
+    var total = 0;
+    for (final path in paths) {
+      if (path.isEmpty) continue;
+      try {
+        final file = File(path);
+        if (await file.exists()) total += await file.length();
+      } catch (_) {
+        // A file we cannot read counts as zero.
+      }
+    }
+    return total;
+  }
+
   /// Copies the camera's temporary photo into permanent storage
   /// and deletes the temporary file. Returns the new path.
   Future<String> save({

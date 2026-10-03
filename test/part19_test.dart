@@ -57,13 +57,13 @@ void main() {
     expect(find.text(first.title), findsOneWidget);
     expect(find.text(first.body), findsNothing); // closed
 
-    await tester.tap(find.byKey(const Key('faq-0')));
+    await tester.tap(find.text(first.title)); // tap the title row
     await tester.pumpAndSettle();
     expect(find.text(first.body), findsOneWidget); // open
 
-    await tester.tap(find.byKey(const Key('faq-0')));
+    await tester.tap(find.text(first.title)); // title is always tappable
     await tester.pumpAndSettle();
-    expect(find.text(first.body), findsNothing); // closed again
+    expect(find.text(first.body), findsNothing); // closed again// closed again
   });
 
   testWidgets('legal page shows its title, date and an open first section', (

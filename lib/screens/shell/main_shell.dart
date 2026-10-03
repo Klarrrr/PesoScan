@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../widgets/peso_bottom_bar.dart';
 
-import '../home/dev_home_screen.dart';
+import '../settings/settings_tab.dart';
 import '../home/home_tab.dart';
 import '../scanner/open_scanner.dart';
 
@@ -39,7 +39,7 @@ class _MainShellState extends State<MainShell> {
                 children: [
                   HomeTab(onGoToTab: _goTo),
                   const HistoryTab(), // Part 13
-                  const DevHomeScreen(), // temporary Settings, Part 20
+                  const SettingsTab(), // temporary Settings, Part 20
                 ],
               ),
             ),
