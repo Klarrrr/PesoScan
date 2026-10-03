@@ -1,3 +1,5 @@
+// ignore_for_file: duplicate_ignore, unused_import
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,6 +13,9 @@ import '../../core/app_routes.dart';
 import '../../core/money.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/supabase_service.dart';
+
+import '../../services/detector/detector_factory.dart';
+import '../../services/detector/mock_detector.dart';
 
 /// TEMPORARY screen to test theme, settings and the backend.
 /// Replaced by the real Home in Part 8.
@@ -120,6 +125,30 @@ class DevHomeScreen extends StatelessWidget {
               );
             },
             child: const Text('Add sample scans (dev only)'),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Fake detector scene (dev only)',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          StatefulBuilder(
+            builder: (context, setState) => SegmentedButton<MockScenario>(
+              segments: const [
+                ButtonSegment(
+                  value: MockScenario.normal,
+                  label: Text('Normal'),
+                ),
+                ButtonSegment(
+                  value: MockScenario.crowded,
+                  label: Text('Crowded'),
+                ),
+                ButtonSegment(value: MockScenario.edge, label: Text('Edge')),
+              ],
+              selected: {DetectorFactory.mockScenario},
+              onSelectionChanged: (s) =>
+                  setState(() => DetectorFactory.mockScenario = s.first),
+            ),
           ),
           const SizedBox(height: 16),
           Text(

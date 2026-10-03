@@ -1,13 +1,16 @@
 import 'package:flutter/foundation.dart';
 
 import '../core/constants.dart';
+import '../core/guidance.dart';
 import '../core/scan_math.dart' as math;
 import '../models/detection.dart';
 import '../services/detection_tracker.dart';
 import '../services/detector/mock_detector.dart';
 import '../services/detector/money_detector.dart';
+import '../services/frame_analyzer.dart';
 
-/// Runs the detector on camera frames and keeps the steady result.
+/// Runs the detector on camera frames and keeps the steady result,
+/// plus the tips that help the user scan better.
 /// One instance lives as long as the scanner screen is open.
 class ScannerProvider extends ChangeNotifier {
   final MoneyDetector detector;
@@ -20,13 +23,21 @@ class ScannerProvider extends ChangeNotifier {
   /// were added. The screen uses it for the haptic and the chime.
   void Function(int added)? onItemsLocked;
 
+  /// Width / height of the upright camera picture (the screen sets it).
+  double frameAspect = 9 / 16;
+
   ScannerProvider({
     required this.detector,
     DetectionTracker? tracker,
     this.minInterval = AppConstants.detectionInterval,
-  }) : tracker = tracker ?? DetectionTracker();
+    GuidanceTracker? guidanceTracker,
+  }) : tracker = tracker ?? DetectionTracker(),
+       _guidance = guidanceTracker ?? GuidanceTracker();
 
+  final GuidanceTracker _guidance;
   List<Detection> _detections = const [];
+  FrameSignals? _signals;
+  List<GuidanceTip> _tips = const [];
   bool _ready = false;
   bool _busy = false;
   bool _frozen = false;
@@ -40,6 +51,12 @@ class ScannerProvider extends ChangeNotifier {
   bool get isReady => _ready;
   bool get isFrozen => _frozen;
   bool get hasLowConfidence => _detections.any((d) => d.isLowConfidence);
+
+  /// Light and shaking, as last measured (null until the first look).
+  FrameSignals? get signals => _signals;
+
+  /// Active tips, most important first.
+  List<GuidanceTip> get tips => _tips;
 
   /// Load the model. Frames sent before this finishes are ignored.
   Future<void> start() async {
@@ -67,6 +84,7 @@ class ScannerProvider extends ChangeNotifier {
       final before = _detections.length;
       _detections = tracker.update(raw);
       final added = _detections.length - before;
+      _refreshGuidance();
       notifyListeners();
       if (added > 0) onItemsLocked?.call(added);
     } catch (e) {
@@ -74,6 +92,27 @@ class ScannerProvider extends ChangeNotifier {
     } finally {
       _busy = false;
     }
+  }
+
+  /// The screen sends what it measured from the camera picture.
+  void updateSignals(FrameSignals signals) {
+    if (_frozen || _disposed) return;
+    _signals = signals;
+    _refreshGuidance();
+    notifyListeners();
+  }
+
+  void _refreshGuidance() {
+    final raw = evaluateGuidance(
+      detections: _detections,
+      signals: _signals,
+      frameAspect: frameAspect,
+    );
+    final active = _guidance.update(raw);
+    _tips = [
+      for (final tip in GuidanceTip.values)
+        if (active.contains(tip)) tip,
+    ];
   }
 
   /// Stops updating and returns what was on screen at this moment.
@@ -92,8 +131,10 @@ class ScannerProvider extends ChangeNotifier {
   /// The Reset button: wipe the current count and start fresh.
   void reset() {
     tracker.reset();
+    _guidance.reset();
     _detections = const [];
-    // The fake detector gets a brand-new random scene so you can demo it.
+    _tips = const [];
+    // The fake detector gets a brand-new scene so you can demo it.
     // The real detector simply sees whatever is in front of the camera.
     if (detector is MockDetector) (detector as MockDetector).regenerate();
     notifyListeners();

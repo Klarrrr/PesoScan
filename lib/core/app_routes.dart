@@ -20,6 +20,11 @@ import '../screens/scanner/scanner_screen.dart';
 import '../models/scan_record.dart';
 import '../screens/history/scan_detail_screen.dart';
 import '../screens/stats/statistics_screen.dart';
+import '../screens/info/currency_reference_screen.dart';
+
+import '../data/legal_content.dart';
+import '../screens/info/help_faq_screen.dart';
+import '../screens/info/legal_screen.dart';
 
 /// Every screen has a name. Navigate with:
 ///   Navigator.pushNamed(context, AppRoutes.history);
@@ -46,6 +51,8 @@ class AppRoutes {
   static const guide = '/guide';
   static const help = '/help';
   static const settings = '/settings';
+  static const terms = '/terms';
+  static const privacy = '/privacy';
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     Widget screen;
@@ -73,6 +80,22 @@ class AppRoutes {
         screen = const NewPasswordScreen();
       case statistics:
         screen = const StatisticsScreen();
+      case guide:
+        screen = const CurrencyReferenceScreen();
+      case help:
+        screen = const HelpFaqScreen();
+      case terms:
+        screen = const LegalScreen(
+          title: 'Terms of Service',
+          subtitle: 'Please read before using PesoScan',
+          sections: termsSections,
+        );
+      case privacy:
+        screen = const LegalScreen(
+          title: 'Privacy Policy',
+          subtitle: 'How PesoScan handles your information',
+          sections: privacySections,
+        );
       case codeEntry:
         final args = settings.arguments;
         screen = args is CodeEntryArgs
