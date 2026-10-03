@@ -97,6 +97,28 @@ class HistoryProvider extends ChangeNotifier {
     await load();
   }
 
+  /// How many scans still have a photo, and how much space those use.
+  Future<({int count, int bytes})> photoStats() async {
+    final paths = [
+      for (final scan in _all)
+        if (scan.imagePath.isNotEmpty) scan.imagePath,
+    ];
+    return (count: paths.length, bytes: await _imageStore.totalSize(paths));
+  }
+
+  /// Deletes every photo but KEEPS the scans, totals and items.
+  /// Returns the number of bytes freed.
+  Future<int> clearPhotos() async {
+    var freed = 0;
+    for (final scan in _all.where((s) => s.imagePath.isNotEmpty)) {
+      freed += await _imageStore.totalSize([scan.imagePath]);
+      await _imageStore.delete(scan.imagePath);
+      await _repository.save(scan.copyWith(imagePath: ''));
+    }
+    await load();
+    return freed;
+  }
+
   void setQuery(String value) {
     _query = value;
     notifyListeners();
