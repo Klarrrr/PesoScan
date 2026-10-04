@@ -6,12 +6,13 @@ import '../../models/money_class.dart';
 import 'money_detector.dart';
 
 /// Which kind of scene the fake detector invents.
-/// "crowded" and "edge" exist to test the camera-assistance warnings.
-enum MockScenario { normal, crowded, edge }
+/// "crowded" and "edge" test the camera-assistance warnings;
+/// "empty" and "failing" test the problem screens.
+enum MockScenario { normal, crowded, edge, empty, failing }
 
 /// A fake detector for development. It "sees" a few coins or bills with
 /// slight box jitter and confidence flicker every frame, like a real model.
-class MockDetector implements MoneyDetector {
+class MockDetector implements MoneyDetector, DemoCapable {
   final Random _rng;
   MockScenario scenario;
   List<_MockItem> _items = [];
@@ -19,6 +20,12 @@ class MockDetector implements MoneyDetector {
   /// Pass a `seed` to get the same scene every run (useful in tests).
   MockDetector({int? seed, this.scenario = MockScenario.normal})
     : _rng = Random(seed);
+
+  @override
+  bool get isDemo => true;
+
+  @override
+  String get demoReason => 'Fake detections for testing';
 
   // Preset coin positions (centre x, centre y) that keep a healthy gap.
   static const List<(double, double)> _coinSlots = [
@@ -36,12 +43,13 @@ class MockDetector implements MoneyDetector {
   Future<void> initialize() async => regenerate();
 
   /// Create a brand-new scene.
-  /// Only the mock has this; the real detector does not.
+  @override
   void regenerate() {
     _items = switch (scenario) {
       MockScenario.normal => _rng.nextBool() ? _coinScene() : _billScene(),
       MockScenario.crowded => _crowdedScene(),
       MockScenario.edge => _edgeScene(),
+      MockScenario.empty || MockScenario.failing => <_MockItem>[],
     };
   }
 
@@ -107,6 +115,10 @@ class MockDetector implements MoneyDetector {
   Future<List<Detection>> detect(DetectorFrame frame) async {
     // Pretend the neural network takes a little time.
     await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    if (scenario == MockScenario.failing) {
+      throw StateError('Simulated detector failure');
+    }
 
     return _items.map((item) {
       final dx = (_rng.nextDouble() - 0.5) * 0.008; // tiny jitter

@@ -4,14 +4,17 @@ import '../core/app_colors.dart';
 import '../core/app_theme.dart';
 import 'gold_button.dart';
 
-/// A "Are you sure?" popup in the app's style.
+/// An "Are you sure?" popup in the app's style.
 /// Returns true only if the user pressed the main button.
+/// With [showCancel] false it is a plain message with one button.
 class ConfirmDialog extends StatelessWidget {
   final IconData icon;
   final String title;
   final String message;
   final String confirmLabel;
+  final String cancelLabel;
   final bool danger;
+  final bool showCancel;
 
   const ConfirmDialog({
     super.key,
@@ -19,7 +22,9 @@ class ConfirmDialog extends StatelessWidget {
     required this.title,
     required this.message,
     required this.confirmLabel,
+    this.cancelLabel = 'Cancel',
     this.danger = false,
+    this.showCancel = true,
   });
 
   static Future<bool> show(
@@ -28,7 +33,9 @@ class ConfirmDialog extends StatelessWidget {
     required String title,
     required String message,
     required String confirmLabel,
+    String cancelLabel = 'Cancel',
     bool danger = false,
+    bool showCancel = true,
   }) async {
     final result = await showDialog<bool>(
       context: context,
@@ -37,7 +44,9 @@ class ConfirmDialog extends StatelessWidget {
         title: title,
         message: message,
         confirmLabel: confirmLabel,
+        cancelLabel: cancelLabel,
         danger: danger,
+        showCancel: showCancel,
       ),
     );
     return result ?? false;
@@ -52,7 +61,7 @@ class ConfirmDialog extends StatelessWidget {
       backgroundColor: c.surface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 28),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -81,11 +90,13 @@ class ConfirmDialog extends StatelessWidget {
                 label: confirmLabel,
                 onPressed: () => Navigator.pop(context, true),
               ),
-            const SizedBox(height: 10),
-            SoftButton(
-              label: 'Cancel',
-              onPressed: () => Navigator.pop(context, false),
-            ),
+            if (showCancel) ...[
+              const SizedBox(height: 10),
+              SoftButton(
+                label: cancelLabel,
+                onPressed: () => Navigator.pop(context, false),
+              ),
+            ],
           ],
         ),
       ),

@@ -32,5 +32,14 @@ class AppConstants {
   /// How often the picture is checked for light and shaking.
   static const Duration analysisInterval = Duration(milliseconds: 250);
 
-  static const String suggestedDistance = '20-30 cm';
+  /// "20-30 cm" with an en dash.
+  static const String suggestedDistance = '20\u201330 cm';
+
+  // ---- Problem states (Part 21) ----
+
+  /// Nothing found for this long = show the "No coins or bills found" card.
+  static const Duration noItemsAfter = Duration(seconds: 8);
+
+  /// This many failed readings in a row = "Unable to process the picture".
+  static const int failuresBeforeError = 3;
 }
