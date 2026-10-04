@@ -2,14 +2,13 @@ import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
 import '../../core/constants.dart';
 import '../../models/detection.dart';
-import '../../models/scan_record.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/history_provider.dart';
 import '../../providers/scanner_provider.dart';
@@ -20,13 +19,16 @@ import '../../services/feedback_service.dart';
 import '../../services/frame_analyzer.dart';
 import '../../services/permission_service.dart';
 import '../../services/scan_image_store.dart';
+import '../../services/scan_saver.dart';
+import '../../widgets/confirm_dialog.dart';
 import 'detection_overlay.dart';
 import 'guidance_widgets.dart';
+import 'problem_widgets.dart';
 import 'scan_result_sheet.dart';
 import 'scanner_widgets.dart';
 
 /// Pages 7-9 of the prototype: live camera, detections, capture and result,
-/// now with scanning tips.
+/// scanning tips, and clear messages when something is wrong.
 class ScannerScreen extends StatelessWidget {
   const ScannerScreen({super.key});
 
@@ -56,6 +58,7 @@ class _ScannerViewState extends State<_ScannerView>
   DateTime _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
 
   CameraController? _controller;
+  int _rotation = 0; // degrees to turn the camera picture so it looks upright
   String? _cameraError;
   bool _permissionProblem = false;
   bool _torchOn = false;
@@ -152,7 +155,7 @@ class _ScannerViewState extends State<_ScannerView>
         // This phone has no flash: nothing to switch off.
       }
 
-      // Guard check after the setFlashMode async gap:
+      // The screen may have been closed while we waited above.
       if (!mounted) {
         await controller.dispose();
         return;
@@ -160,6 +163,7 @@ class _ScannerViewState extends State<_ScannerView>
 
       setState(() {
         _controller = controller;
+        _rotation = back.sensorOrientation;
         _torchOn = false;
       });
       context.read<ScannerProvider>().frameAspect = _frameAspect;
@@ -182,12 +186,18 @@ class _ScannerViewState extends State<_ScannerView>
 
   /// Hand every camera frame to the detector, and every few to the analyzer.
   Future<void> _startStream(CameraController controller) async {
-    if (_streaming) return;
+    if (_streaming || !mounted) return;
     final scanner = context.read<ScannerProvider>();
+    final rotation = _rotation;
     try {
       await controller.startImageStream((CameraImage image) {
         scanner.onFrame(
-          DetectorFrame(width: image.width, height: image.height, raw: image),
+          DetectorFrame(
+            width: image.width,
+            height: image.height,
+            raw: image,
+            rotation: rotation,
+          ),
         );
         _analyze(image, scanner);
       });
@@ -320,53 +330,73 @@ class _ScannerViewState extends State<_ScannerView>
     }
   }
 
+  /// Saves the scan. If the phone is full, the user can free some space and
+  /// try again without losing the count.
   Future<void> _save(List<Detection> detections, String? tempPath) async {
     // Read everything we need from the context BEFORE the first await.
-    final history = context.read<HistoryProvider>();
+    final saver = ScanSaver(add: context.read<HistoryProvider>().add);
     final userId = context.read<AuthProvider>().userId;
     final settings = context.read<SettingsProvider>();
     final messenger = ScaffoldMessenger.of(context);
-    final id = const Uuid().v4();
 
-    var imagePath = '';
-    if (tempPath != null) {
-      try {
-        imagePath = await _imageStore.save(tempPath: tempPath, scanId: id);
-      } catch (e) {
-        debugPrint('Saving the photo failed: $e');
+    final pending = await saver.prepare(tempPath);
+
+    while (true) {
+      final outcome = await saver.commit(
+        pending,
+        detections: detections,
+        userId: userId,
+      );
+
+      switch (outcome) {
+        case SaveOutcome.saved:
+        case SaveOutcome.savedWithoutPhoto:
+          FeedbackService.instance.saved(
+            haptic: settings.hapticEnabled,
+            audio: settings.audioEnabled,
+          );
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                outcome == SaveOutcome.saved
+                    ? 'Saved to history.'
+                    : 'Saved to history (without a photo).',
+              ),
+            ),
+          );
+          return;
+
+        case SaveOutcome.storageFull:
+          if (!mounted) {
+            await saver.abandon(pending);
+            return;
+          }
+          final tryAgain = await ConfirmDialog.show(
+            context,
+            icon: Icons.sd_storage_outlined,
+            title: 'Storage space is full',
+            message:
+                'PesoScan could not save this scan because your phone is '
+                'almost full. Free up some space, then tap Try again. You can '
+                'also clear scan photos in Settings.',
+            confirmLabel: 'Try again',
+            cancelLabel: 'Discard scan',
+          );
+          if (!tryAgain) {
+            await saver.abandon(pending);
+            return;
+          }
+        // otherwise: go round the loop and try to save again
+
+        case SaveOutcome.failed:
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Could not save the scan. Please try again.'),
+            ),
+          );
+          await saver.abandon(pending);
+          return;
       }
-    }
-
-    try {
-      await history.add(
-        ScanRecord(
-          id: id,
-          createdAt: DateTime.now(),
-          imagePath: imagePath,
-          detections: detections,
-          userId: userId,
-        ),
-      );
-      FeedbackService.instance.saved(
-        haptic: settings.hapticEnabled,
-        audio: settings.audioEnabled,
-      );
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            imagePath.isEmpty
-                ? 'Saved to history (without a photo).'
-                : 'Saved to history.',
-          ),
-        ),
-      );
-    } catch (e) {
-      debugPrint('Saving the scan failed: $e');
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Could not save the scan. Please try again.'),
-        ),
-      );
     }
   }
 
@@ -431,98 +461,150 @@ class _ScannerViewState extends State<_ScannerView>
   Widget build(BuildContext context) {
     final hasCamera = _controller != null && _cameraError == null;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                _buildPreview(),
-                const GridOverlay(),
-                // The dashed "put your coins here" frame, until items appear.
-                Consumer<ScannerProvider>(
-                  builder: (context, scanner, _) =>
-                      PlacementGuide(visible: hasCamera && scanner.count == 0),
-                ),
-                // Only the overlays rebuild ~10x per second, not the camera.
-                Consumer<ScannerProvider>(
-                  builder: (context, scanner, _) => DetectionOverlay(
-                    detections: scanner.detections,
-                    frameAspect: _frameAspect,
-                  ),
-                ),
-                CornerBrackets(topInset: MediaQuery.paddingOf(context).top + 8),
-                ScanLine(animation: _scanLine),
-                if (hasCamera)
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Light status-bar icons on the dark camera screen.
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: const Color(0xFF030B1C),
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Column(
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildPreview(),
+                  const GridOverlay(),
+                  // The dashed "put your coins here" frame, until items appear.
                   Consumer<ScannerProvider>(
-                    builder: (context, scanner, _) => Align(
-                      alignment: const Alignment(0, 0.78),
-                      child: scanner.count == 0
-                          ? const HintChip(
-                              text: 'Place coins or bills in frame',
-                            )
-                          : const SizedBox.shrink(),
+                    builder: (context, scanner, _) => PlacementGuide(
+                      visible:
+                          hasCamera &&
+                          scanner.count == 0 &&
+                          !scanner.hasProblem,
                     ),
                   ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: SafeArea(
-                    bottom: false,
-                    child: Consumer<ScannerProvider>(
-                      builder: (context, scanner, _) => Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ScannerTopBar(
-                            onBack: () => Navigator.pop(context),
-                            live: scanner.isLive,
-                            count: scanner.count,
-                          ),
-                          const SizedBox(height: 8),
-                          ScanStatusStrip(
-                            signals: scanner.signals,
-                            tips: scanner.tips,
-                            onHelp: () => ScanGuideSheet.show(context),
-                          ),
-                          const SizedBox(height: 8),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: GuidanceBanner(
-                              tips: scanner.tips,
-                              torchOn: _torchOn,
-                              onTurnOnFlash: _toggleTorch,
+                  // Only the overlays rebuild ~10x per second, not the camera.
+                  Consumer<ScannerProvider>(
+                    builder: (context, scanner, _) => DetectionOverlay(
+                      detections: scanner.detections,
+                      frameAspect: _frameAspect,
+                    ),
+                  ),
+                  CornerBrackets(
+                    topInset: MediaQuery.paddingOf(context).top + 8,
+                  ),
+                  ScanLine(animation: _scanLine),
+
+                  // Bottom of the camera area: a hint, or a problem card.
+                  Consumer<ScannerProvider>(
+                    builder: (context, scanner, _) {
+                      Widget? card;
+                      if (scanner.hasStartupError) {
+                        card = ScanProblemCard(
+                          icon: Icons.memory_rounded,
+                          title: 'Detection is not available',
+                          message: scanner.startupError!,
+                          retryLabel: 'Try again',
+                          onRetry: scanner.retry,
+                        );
+                      } else if (scanner.processingFailed) {
+                        card = ScanProblemCard(
+                          icon: Icons.image_not_supported_outlined,
+                          title: 'Unable to process the picture',
+                          message:
+                              'Something went wrong while reading the '
+                              'camera picture. Try again, or restart the app '
+                              'if it keeps happening.',
+                          retryLabel: 'Try again',
+                          onRetry: scanner.retry,
+                        );
+                      } else if (hasCamera && scanner.noItemsFound) {
+                        card = EmptyScanCard(
+                          onHelp: () => ScanGuideSheet.show(context),
+                        );
+                      } else if (hasCamera && scanner.count == 0) {
+                        card = const HintChip(
+                          text: 'Place coins or bills in frame',
+                        );
+                      }
+                      return Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                          child: card ?? const SizedBox.shrink(),
+                        ),
+                      );
+                    },
+                  ),
+
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SafeArea(
+                      bottom: false,
+                      child: Consumer<ScannerProvider>(
+                        builder: (context, scanner, _) => Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ScannerTopBar(
+                              onBack: () => Navigator.pop(context),
+                              live: scanner.isLive,
+                              count: scanner.count,
                             ),
-                          ),
-                        ],
+                            if (scanner.isDemoMode) ...[
+                              const SizedBox(height: 8),
+                              DemoBadge(reason: scanner.demoReason ?? ''),
+                            ],
+                            const SizedBox(height: 8),
+                            ScanStatusStrip(
+                              signals: scanner.signals,
+                              tips: scanner.tips,
+                              onHelp: () => ScanGuideSheet.show(context),
+                            ),
+                            const SizedBox(height: 8),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: GuidanceBanner(
+                                tips: scanner.tips,
+                                torchOn: _torchOn,
+                                onTurnOnFlash: _toggleTorch,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Consumer<ScannerProvider>(
-            builder: (context, scanner, _) => TotalPanel(
-              totalCentavos: scanner.totalCentavos,
-              count: scanner.count,
+            Consumer<ScannerProvider>(
+              builder: (context, scanner, _) => TotalPanel(
+                totalCentavos: scanner.totalCentavos,
+                count: scanner.count,
+              ),
             ),
-          ),
-          Consumer<ScannerProvider>(
-            builder: (context, scanner, _) {
-              final canCapture = scanner.isLive && !scanner.isFrozen;
-              return ScannerControlBar(
-                torchOn: _torchOn,
-                onTorch: _toggleTorch,
-                captureEnabled: canCapture,
-                onCapture: canCapture ? _capture : null,
-                onReset: scanner.reset,
-              );
-            },
-          ),
-        ],
+            Consumer<ScannerProvider>(
+              builder: (context, scanner, _) {
+                final canCapture = scanner.isLive && !scanner.isFrozen;
+                return ScannerControlBar(
+                  torchOn: _torchOn,
+                  onTorch: _toggleTorch,
+                  captureEnabled: canCapture,
+                  onCapture: canCapture ? _capture : null,
+                  onReset: scanner.reset,
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

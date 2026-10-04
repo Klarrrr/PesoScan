@@ -5,12 +5,11 @@ import '../core/guidance.dart';
 import '../core/scan_math.dart' as math;
 import '../models/detection.dart';
 import '../services/detection_tracker.dart';
-import '../services/detector/mock_detector.dart';
 import '../services/detector/money_detector.dart';
 import '../services/frame_analyzer.dart';
 
-/// Runs the detector on camera frames and keeps the steady result,
-/// plus the tips that help the user scan better.
+/// Runs the detector on camera frames and keeps the steady result, plus the
+/// scanning tips and the "something is wrong" states.
 /// One instance lives as long as the scanner screen is open.
 class ScannerProvider extends ChangeNotifier {
   final MoneyDetector detector;
@@ -18,6 +17,8 @@ class ScannerProvider extends ChangeNotifier {
 
   /// Minimum time between detector runs (tests pass Duration.zero).
   final Duration minInterval;
+
+  final DateTime Function() _now;
 
   /// Called when the number of confirmed items goes UP, with how many
   /// were added. The screen uses it for the haptic and the chime.
@@ -31,8 +32,10 @@ class ScannerProvider extends ChangeNotifier {
     DetectionTracker? tracker,
     this.minInterval = AppConstants.detectionInterval,
     GuidanceTracker? guidanceTracker,
+    DateTime Function()? now,
   }) : tracker = tracker ?? DetectionTracker(),
-       _guidance = guidanceTracker ?? GuidanceTracker();
+       _guidance = guidanceTracker ?? GuidanceTracker(),
+       _now = now ?? DateTime.now;
 
   final GuidanceTracker _guidance;
   List<Detection> _detections = const [];
@@ -42,7 +45,10 @@ class ScannerProvider extends ChangeNotifier {
   bool _busy = false;
   bool _frozen = false;
   bool _disposed = false;
+  String? _startupError;
+  int _failures = 0;
   DateTime _lastRun = DateTime.fromMillisecondsSinceEpoch(0);
+  late DateTime _lastItemsAt = _now();
 
   List<Detection> get detections => _detections;
   int get count => _detections.length;
@@ -58,11 +64,66 @@ class ScannerProvider extends ChangeNotifier {
   /// Active tips, most important first.
   List<GuidanceTip> get tips => _tips;
 
+  // ---- Problem states -------------------------------------------------
+
+  /// Why the detector could not start (null = it started fine).
+  String? get startupError => _startupError;
+  bool get hasStartupError => _startupError != null;
+
+  /// The detector failed several times in a row.
+  bool get processingFailed => _failures >= AppConstants.failuresBeforeError;
+
+  bool get hasProblem => hasStartupError || processingFailed;
+
+  /// Scanning for a while and nothing was found.
+  bool get noItemsFound =>
+      _ready &&
+      !_frozen &&
+      !processingFailed &&
+      _detections.isEmpty &&
+      _now().difference(_lastItemsAt) >= AppConstants.noItemsAfter;
+
+  /// True while the results are invented (fake detector).
+  bool get isDemoMode {
+    final d = detector;
+    return d is DemoCapable && (d as DemoCapable).isDemo;
+  }
+
+  String? get demoReason {
+    final d = detector;
+    if (d is DemoCapable) {
+      final demo = d as DemoCapable;
+      return demo.isDemo ? demo.demoReason : null;
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------
+
   /// Load the model. Frames sent before this finishes are ignored.
+  /// A problem does not throw: it becomes [startupError].
   Future<void> start() async {
-    await detector.initialize();
-    _ready = true;
+    _startupError = null;
+    _failures = 0;
+    try {
+      await detector.initialize();
+      _ready = true;
+      _lastItemsAt = _now();
+    } on ModelLoadException catch (e) {
+      _ready = false;
+      _startupError = e.message;
+    } catch (e) {
+      debugPrint('The detector could not start: $e');
+      _ready = false;
+      _startupError = 'The detection model could not be started.';
+    }
     if (!_disposed) notifyListeners();
+  }
+
+  /// The "Try again" button.
+  Future<void> retry() async {
+    _ready = false;
+    await start();
   }
 
   /// Called for every camera frame (about 30 times a second).
@@ -71,7 +132,7 @@ class ScannerProvider extends ChangeNotifier {
   Future<void> onFrame(DetectorFrame frame) async {
     if (!_ready || _busy || _frozen || _disposed) return;
 
-    final now = DateTime.now();
+    final now = _now();
     if (now.difference(_lastRun) < minInterval) return;
     _lastRun = now;
 
@@ -81,14 +142,21 @@ class ScannerProvider extends ChangeNotifier {
       // The user may have frozen the scan while the detector was working.
       if (_disposed || _frozen) return;
 
+      _failures = 0;
       final before = _detections.length;
       _detections = tracker.update(raw);
+      if (_detections.isNotEmpty) _lastItemsAt = _now();
       final added = _detections.length - before;
       _refreshGuidance();
       notifyListeners();
       if (added > 0) onItemsLocked?.call(added);
     } catch (e) {
       debugPrint('Detection failed: $e');
+      _failures++;
+      // Tell the screen the moment it becomes a real problem.
+      if (_failures == AppConstants.failuresBeforeError && !_disposed) {
+        notifyListeners();
+      }
     } finally {
       _busy = false;
     }
@@ -134,9 +202,13 @@ class ScannerProvider extends ChangeNotifier {
     _guidance.reset();
     _detections = const [];
     _tips = const [];
-    // The fake detector gets a brand-new scene so you can demo it.
+    _lastItemsAt = _now();
+    // The fake detector makes up a brand-new scene so you can demo it.
     // The real detector simply sees whatever is in front of the camera.
-    if (detector is MockDetector) (detector as MockDetector).regenerate();
+    final d = detector;
+    if (d is DemoCapable) {
+      (d as DemoCapable).regenerate();
+    }
     notifyListeners();
   }
 
