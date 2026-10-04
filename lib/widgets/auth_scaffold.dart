@@ -4,6 +4,7 @@ import '../core/app_colors.dart';
 import '../core/app_images.dart';
 import '../core/app_theme.dart';
 import 'app_image.dart';
+import 'offline_banner.dart';
 
 /// Logo that uses assets/images/image_1.png, or a drawn gold coin until you add it.
 class BrandLogo extends StatelessWidget {
@@ -98,6 +99,7 @@ class AuthScaffold extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const OfflineBanner(),
                   const Center(child: BrandLogo(size: 72)),
                   const SizedBox(height: 14),
                   Center(
