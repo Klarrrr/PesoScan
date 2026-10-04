@@ -1,92 +1,96 @@
-// ignore_for_file: duplicate_ignore, unused_import
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../providers/history_provider.dart';
-import '../../services/sample_data.dart';
-
-// ignore: unused_import
-import '../../providers/auth_provider.dart';
-
 import '../../core/app_routes.dart';
-import '../../core/money.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/history_provider.dart';
 import '../../providers/settings_provider.dart';
-import '../../services/supabase_service.dart';
-
 import '../../services/detector/detector_factory.dart';
 import '../../services/detector/mock_detector.dart';
+import '../../services/sample_data.dart';
+import '../../services/supabase_service.dart';
 
-/// TEMPORARY screen to test theme, settings and the backend.
-/// Replaced by the real Home in Part 8.
-class DevHomeScreen extends StatelessWidget {
+/// Developer tools (debug builds only: Settings > Developer tools).
+class DevHomeScreen extends StatefulWidget {
   const DevHomeScreen({super.key});
 
   @override
+  State<DevHomeScreen> createState() => _DevHomeScreenState();
+}
+
+class _DevHomeScreenState extends State<DevHomeScreen> {
+  static const Map<MockScenario, String> _sceneLabels = {
+    MockScenario.normal: 'Normal',
+    MockScenario.crowded: 'Crowded',
+    MockScenario.edge: 'Edge',
+    MockScenario.empty: 'Empty',
+    MockScenario.failing: 'Fails',
+  };
+
+  @override
   Widget build(BuildContext context) {
-    // watch = rebuild this screen whenever settings change.
-    final settings = context.watch<SettingsProvider>();
+    final text = Theme.of(context).textTheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('PesoScan (dev)')),
+      appBar: AppBar(title: const Text('Developer tools')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        padding: const EdgeInsets.all(16),
         children: [
+          Text('Fake detector scene', style: text.titleMedium),
+          const SizedBox(height: 4),
           Text(
-            'Sample total: ${formatPeso(4625)}',
-            style: Theme.of(context).textTheme.headlineSmall,
+            'Used by the scanner while there is no model. '
+            'Change it, then open the scanner.\n'
+            'Crowded: too close. Edge: outside the frame. '
+            'Empty: no coins found. Fails: cannot process the picture.',
+            style: text.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in _sceneLabels.entries)
+                ChoiceChip(
+                  label: Text(entry.value),
+                  selected: DetectorFactory.mockScenario == entry.key,
+                  onSelected: (_) =>
+                      setState(() => DetectorFactory.mockScenario = entry.key),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Fake detections allowed in this build: '
+            '${DetectorFactory.demoAllowed ? 'yes' : 'no'}',
+            style: text.bodySmall,
           ),
           const SizedBox(height: 24),
-          Text('Theme', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          SegmentedButton<ThemeMode>(
-            segments: const [
-              ButtonSegment(value: ThemeMode.light, label: Text('Light')),
-              ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
-              ButtonSegment(value: ThemeMode.system, label: Text('System')),
-            ],
-            selected: {settings.themeMode},
-            // read = call a method without rebuilding because of this line.
-            onSelectionChanged: (s) =>
-                context.read<SettingsProvider>().setThemeMode(s.first),
-          ),
-          const SizedBox(height: 16),
-          SwitchListTile(
-            title: const Text('Haptic feedback'),
-            value: settings.hapticEnabled,
-            onChanged: (v) =>
-                context.read<SettingsProvider>().setHapticEnabled(v),
-          ),
-          SwitchListTile(
-            title: const Text('Audio feedback'),
-            value: settings.audioEnabled,
-            onChanged: (v) =>
-                context.read<SettingsProvider>().setAudioEnabled(v),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.history),
-            child: const Text('Open a placeholder screen'),
-          ),
-          const SizedBox(height: 8),
           OutlinedButton(
             onPressed: () async {
-              await context.read<SettingsProvider>().setOnboardingDone(false);
-              if (!context.mounted) return;
-              Navigator.pushNamedAndRemoveUntil(
-                context,
-                AppRoutes.splash,
-                (_) => false,
+              final messenger = ScaffoldMessenger.of(context);
+              final history = context.read<HistoryProvider>();
+              final userId = context.read<AuthProvider>().userId;
+              await history.addAll(devSampleScans(userId: userId));
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Added 8 sample scans')),
               );
             },
-            child: const Text('Reset onboarding (dev only)'),
+            child: const Text('Add sample scans'),
           ),
           const SizedBox(height: 8),
           OutlinedButton(
             onPressed: () async {
-              // Grab the messenger BEFORE the await (safe use of context).
+              final navigator = Navigator.of(context);
+              await context.read<SettingsProvider>().setOnboardingDone(false);
+              navigator.pushNamedAndRemoveUntil(AppRoutes.splash, (_) => false);
+            },
+            child: const Text('Reset onboarding'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
               final messenger = ScaffoldMessenger.of(context);
-
               if (!SupabaseService.isReady) {
                 messenger.showSnackBar(
                   const SnackBar(
@@ -111,54 +115,7 @@ class DevHomeScreen extends StatelessWidget {
                 messenger.showSnackBar(SnackBar(content: Text('Failed: $e')));
               }
             },
-            child: const Text('Test Supabase (dev only)'),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              final history = context.read<HistoryProvider>();
-              final userId = context.read<AuthProvider>().userId;
-              await history.addAll(devSampleScans(userId: userId));
-              messenger.showSnackBar(
-                const SnackBar(content: Text('Added 8 sample scans')),
-              );
-            },
-            child: const Text('Add sample scans (dev only)'),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Fake detector scene (dev only)',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          StatefulBuilder(
-            builder: (context, setState) => SegmentedButton<MockScenario>(
-              segments: const [
-                ButtonSegment(
-                  value: MockScenario.normal,
-                  label: Text('Normal'),
-                ),
-                ButtonSegment(
-                  value: MockScenario.crowded,
-                  label: Text('Crowded'),
-                ),
-                ButtonSegment(value: MockScenario.edge, label: Text('Edge')),
-              ],
-              selected: {DetectorFactory.mockScenario},
-              onSelectionChanged: (s) =>
-                  setState(() => DetectorFactory.mockScenario = s.first),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Signed in as: ${context.watch<AuthProvider>().username ?? '-'}',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: () => context.read<AuthProvider>().logout(),
-            child: const Text('Log out (dev only)'),
+            child: const Text('Test Supabase'),
           ),
         ],
       ),
