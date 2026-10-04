@@ -1,8 +1,11 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'core/app_health.dart';
 import 'core/app_routes.dart';
 import 'core/app_theme.dart';
 import 'providers/auth_provider.dart';
@@ -12,9 +15,20 @@ import 'services/app_database.dart';
 import 'services/scan_repository.dart';
 import 'services/sqlite_scan_repository.dart';
 import 'services/supabase_service.dart';
+import 'widgets/friendly_error_view.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Errors that nobody caught: write them to the log instead of crashing.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('Uncaught error: $error\n$stack');
+    return true;
+  };
+  // In the released app, show a calm message instead of Flutter's grey box.
+  if (kReleaseMode) {
+    ErrorWidget.builder = (details) => const FriendlyErrorView();
+  }
 
   // The scanner is designed for portrait.
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -31,13 +45,14 @@ Future<void> main() async {
   await auth.load();
 
   // Saved scans live in SQLite, separately for each user. If the database
-  // cannot open, fall back to memory so the app is still usable.
+  // cannot open, fall back to memory so the app is still usable, and warn.
   ScanRepository repository;
   try {
     final database = await AppDatabase.open();
     repository = SqliteScanRepository(database.db, userId: () => auth.userId);
   } catch (e) {
     debugPrint('Database could not be opened, using memory instead: $e');
+    AppHealth.databaseFailed = true;
     repository = InMemoryScanRepository();
   }
   final history = HistoryProvider(repository, auth);
@@ -73,9 +88,28 @@ class PesoScanApp extends StatelessWidget {
       navigatorKey: AppRoutes.navigatorKey,
       initialRoute: AppRoutes.splash,
       onGenerateRoute: AppRoutes.onGenerateRoute,
-      // Wraps the whole app, so the guard works on every screen.
-      builder: (context, child) =>
-          _AuthRedirector(child: child ?? const SizedBox.shrink()),
+      // Wraps the whole app.
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        final dark = Theme.of(context).brightness == Brightness.dark;
+
+        return MediaQuery(
+          // Very large system fonts would break the layouts: allow up to 1.3x.
+          data: media.copyWith(
+            textScaler: media.textScaler.clamp(
+              minScaleFactor: 0.9,
+              maxScaleFactor: 1.3,
+            ),
+          ),
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            // Status-bar icons that can be read on this theme.
+            value:
+                (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
+                    .copyWith(statusBarColor: Colors.transparent),
+            child: _AuthRedirector(child: child ?? const SizedBox.shrink()),
+          ),
+        );
+      },
     );
   }
 }
