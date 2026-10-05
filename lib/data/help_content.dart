@@ -70,10 +70,10 @@ List<InfoSection> faqItems() {
     ),
     const InfoSection(
       'Why is my coin or bill not being detected?',
-      'Check that it is fully in the camera view, not too small or too far, '
-          'not blurry, and not hidden under other items. Make sure it is one '
-          'of the supported designs in the Currency Guide, and try better '
-          'light. Tap Reset and try again.',
+      'Check that it is in the camera view, not too small or too far, not '
+          'blurry, and not hidden under other items. Make sure it is one of '
+          'the supported designs in the Currency Guide, and try better light. '
+          'Tap Reset and try again.',
     ),
     const InfoSection(
       'Where are my scans stored, and how do I delete them?',
