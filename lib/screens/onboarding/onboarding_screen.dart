@@ -47,10 +47,9 @@ List<_OnboardingPage> _buildPages() => [
   const _OnboardingPage(
     AppImages.onboardingSpacing,
     Icons.swap_horiz_rounded,
-    'Avoid Overlapping',
-    'PesoScan detects each coin and bill individually. Overlapping items '
-        'may reduce accuracy — separate them slightly for a precise count.',
-    'Leave at least 5mm between each item.',
+    'Overlapping',
+    'PesoScan detects each coin and bill individually. Small overlaps are fine, but do not stack items or cover one with another.',
+    'Spread items out so each one is easy to see.',
   ),
   _OnboardingPage(
     AppImages.onboardingInstant,

@@ -5,8 +5,8 @@ import 'info_section.dart';
 const List<String> quickTips = [
   'Use a plain white or dark background',
   'Use even lighting and avoid shadows',
-  'Keep coins and bills 5 mm apart, no overlapping',
-  'Hold the camera 20–30 cm above the items',
+  'Small overlaps are fine, but do not stack items',
+  'Hold the camera at a good distance from the money',
   'Keep the camera steady while scanning',
 ];
 
@@ -20,9 +20,10 @@ List<InfoSection> faqItems() {
     const InfoSection(
       'How do I get the most accurate scan?',
       'Spread your coins and bills on a plain, flat surface in a single layer. '
-          'Keep them about 5 mm apart so they do not touch or overlap, hold the '
-          'camera 20–30 cm above, and keep it steady until the boxes stop '
-          'moving. Flatten folded bills first.',
+          'Small overlaps are fine, but do not stack items or cover one with '
+          'another. Hold the camera at a good distance from the money so every '
+          'item looks clear, and keep it steady until the boxes stop moving. '
+          'Flatten folded bills first.',
     ),
     const InfoSection(
       'What lighting conditions work best?',
@@ -69,8 +70,8 @@ List<InfoSection> faqItems() {
     ),
     const InfoSection(
       'Why is my coin or bill not being detected?',
-      'Check that it is fully inside the gold corners, not too small or too '
-          'far, not blurry, and not touching other items. Make sure it is one '
+      'Check that it is fully in the camera view, not too small or too far, '
+          'not blurry, and not hidden under other items. Make sure it is one '
           'of the supported designs in the Currency Guide, and try better '
           'light. Tap Reset and try again.',
     ),

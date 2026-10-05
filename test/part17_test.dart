@@ -15,8 +15,6 @@ import 'package:pesoscan/services/detector/mock_detector.dart';
 import 'package:pesoscan/services/detector/money_detector.dart';
 import 'package:pesoscan/services/frame_analyzer.dart';
 
-import 'package:pesoscan/core/constants.dart';
-
 Detection coin(Rect box, {int classId = 7}) =>
     Detection(money: MoneyClasses.byId(classId), confidence: 0.9, box: box);
 
@@ -58,26 +56,40 @@ void main() {
       );
     });
 
-    test('overlapping or nearly touching items are "too close"', () {
-      final overlapping = [
-        coin(around(0.40, 0.45, 0.16)),
-        coin(around(0.50, 0.47, 0.16)),
-      ];
-      expect(
-        evaluateGuidance(detections: overlapping),
-        contains(GuidanceTip.itemsTooClose),
-      );
+    test(
+      'heavy overlap is flagged; small overlap and near-touching are not',
+      () {
+        // One coin almost on top of another.
+        final heavy = [
+          coin(around(0.45, 0.45, 0.16)),
+          coin(around(0.48, 0.46, 0.16)),
+        ];
+        expect(
+          evaluateGuidance(detections: heavy),
+          contains(GuidanceTip.itemsTooClose),
+        );
 
-      final spread = [
-        coin(around(0.25, 0.30, 0.15)),
-        coin(around(0.72, 0.30, 0.15)),
-        coin(around(0.50, 0.70, 0.15)),
-      ];
-      expect(
-        evaluateGuidance(detections: spread),
-        isNot(contains(GuidanceTip.itemsTooClose)),
-      );
-    });
+        // Edges overlapping a little: fine, the model handles it.
+        final slight = [
+          coin(around(0.40, 0.45, 0.16)),
+          coin(around(0.50, 0.47, 0.16)),
+        ];
+        expect(
+          evaluateGuidance(detections: slight),
+          isNot(contains(GuidanceTip.itemsTooClose)),
+        );
+
+        // Close together but not touching.
+        final near = [
+          coin(around(0.25, 0.30, 0.15)),
+          coin(around(0.45, 0.30, 0.15)),
+        ];
+        expect(
+          evaluateGuidance(detections: near),
+          isNot(contains(GuidanceTip.itemsTooClose)),
+        );
+      },
+    );
 
     test('an item touching the picture edge is "outside the frame"', () {
       expect(
@@ -294,7 +306,7 @@ void main() {
 
       expect(find.text('Light OK'), findsOneWidget);
       expect(find.text('Shaking'), findsOneWidget);
-      expect(find.text(AppConstants.suggestedDistance), findsOneWidget);
+      expect(find.text('Distance'), findsOneWidget);
     });
 
     testWidgets('the help button opens the scanning guide', (tester) async {
