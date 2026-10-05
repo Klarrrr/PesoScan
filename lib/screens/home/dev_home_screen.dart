@@ -41,7 +41,7 @@ class _DevHomeScreenState extends State<DevHomeScreen> {
           Text(
             'Used by the scanner while there is no model. '
             'Change it, then open the scanner.\n'
-            'Crowded: too close. Edge: outside the frame. '
+            'Crowded: heavy overlap. Edge: coins cut off by the edge (still counted). '
             'Empty: no coins found. Fails: cannot process the picture.',
             style: text.bodySmall,
           ),

@@ -16,6 +16,8 @@ import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/onboarding/permission_screen.dart';
 import '../screens/onboarding/splash_screen.dart';
 import '../screens/scanner/scanner_screen.dart';
+import '../screens/settings/account_details_screen.dart';
+import '../screens/settings/change_password_screen.dart';
 import '../screens/shell/main_shell.dart';
 import '../screens/stats/statistics_screen.dart';
 import '../widgets/placeholder_screen.dart';
@@ -37,6 +39,7 @@ class AppRoutes {
   static const forgotPassword = '/forgot-password';
   static const newPassword = '/new-password';
   static const changePassword = '/change-password';
+  static const accountDetails = '/account-details';
   static const home = '/home';
   static const scanner = '/scanner';
   static const scanResult = '/scan-result';
@@ -66,9 +69,11 @@ class AppRoutes {
       case forgotPassword:
         screen = const ForgotPasswordScreen();
       case newPassword:
-        screen = const NewPasswordScreen();
+        screen = const NewPasswordScreen(); // only after "forgot password"
       case changePassword:
-        screen = const NewPasswordScreen(fromReset: false);
+        screen = const ChangePasswordScreen(); // from Settings, stays signed in
+      case accountDetails:
+        screen = const AccountDetailsScreen();
       case codeEntry:
         final args = settings.arguments;
         screen = args is CodeEntryArgs

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pesoscan/core/app_theme.dart';
 import 'package:pesoscan/core/frame_mapper.dart';
 import 'package:pesoscan/core/guidance.dart';
 import 'package:pesoscan/data/help_content.dart';
 import 'package:pesoscan/models/detection.dart';
 import 'package:pesoscan/models/money_class.dart';
 import 'package:pesoscan/providers/scanner_provider.dart';
+import 'package:pesoscan/screens/scanner/detection_overlay.dart';
 import 'package:pesoscan/services/detector/money_detector.dart';
 
 class _FixedDetector implements MoneyDetector {
@@ -63,11 +65,9 @@ void main() {
   });
 
   test(
-    'only items inside the visible part of the picture are counted',
+    'items cut off by the edge are counted when enough of them is visible',
     () async {
-      final items = [coinAt(0.5, 0.5, 0.16), coinAt(0.2, 0.05, 0.08)];
-
-      Future<int> countWith(Rect region) async {
+      Future<int> countWith(List<Detection> items, Rect region) async {
         final scanner = ScannerProvider(
           detector: _FixedDetector(items),
           minInterval: Duration.zero,
@@ -82,27 +82,72 @@ void main() {
         return count;
       }
 
-      // The whole picture is visible: both are counted.
-      expect(await countWith(const Rect.fromLTWH(0, 0, 1, 1)), 2);
-      // The top 10% is cropped off: the item up there is not counted.
-      expect(await countWith(const Rect.fromLTRB(0, 0.1, 1, 0.9)), 1);
+      // The top 10% of the camera picture is cropped off the screen.
+      const region = Rect.fromLTRB(0, 0.1, 1, 0.9);
+
+      expect(
+        await countWith([coinAt(0.5, 0.5, 0.16)], region),
+        1,
+      ); // fully visible
+      expect(
+        await countWith([coinAt(0.5, 0.10, 0.16)], region),
+        1,
+      ); // half cut off
+      expect(
+        await countWith([coinAt(0.5, 0.03, 0.16)], region),
+        0,
+      ); // a 6% sliver
+      expect(
+        await countWith([coinAt(0.2, 0.05, 0.08)], region),
+        0,
+      ); // not visible
+      expect(
+        await countWith([
+          coinAt(0.5, 0.5, 0.16),
+          coinAt(0.2, 0.05, 0.08),
+        ], const Rect.fromLTWH(0, 0, 1, 1)),
+        2, // with the whole picture visible, both count
+      );
     },
   );
 
-  test('"cut off at the edge" is measured against what is visible', () {
-    final item = coinAt(0.5, 0.12, 0.08); // its top edge is at 0.08
+  testWidgets('a label stays inside the box when the item is at the top edge', (
+    tester,
+  ) async {
+    final money = MoneyClasses.byId(7);
+    Detection at(double top) => Detection(
+      money: money,
+      confidence: 0.9,
+      box: Rect.fromLTWH(0.4, top, 0.2, 0.1),
+    );
 
-    expect(
-      evaluateGuidance(detections: [item]),
-      isNot(contains(GuidanceTip.itemsOutsideFrame)),
-    );
-    expect(
-      evaluateGuidance(
-        detections: [item],
-        visible: const Rect.fromLTRB(0, 0.1, 1, 0.9),
-      ),
-      contains(GuidanceTip.itemsOutsideFrame),
-    );
+    Future<double> labelTop(double boxTop) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.dark,
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 300,
+                height: 500,
+                child: DetectionOverlay(
+                  detections: [at(boxTop)],
+                  frameAspect: 300 / 500,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      return tester.getTopLeft(find.text(money.shortValue)).dy -
+          tester.getTopLeft(find.byType(DetectionOverlay)).dy;
+    }
+
+    // At the top edge the label is inside the camera area...
+    expect(await labelTop(0.0), greaterThanOrEqualTo(0));
+    // ...and for an item in the middle it sits above the box (250 px down).
+    expect(await labelTop(0.5), lessThan(250));
   });
 
   test(

@@ -29,6 +29,7 @@ class AppConstants {
   /// How often the picture is checked for light and shaking.
   static const Duration analysisInterval = Duration(milliseconds: 250);
 
+  static const double minVisibleShare = 0.20;
   // ---- Problem states (Part 21) ----
   /// Items are only flagged when MORE than this share of the smaller item is
   /// covered by another one. Small overlaps are fine: the model is trained

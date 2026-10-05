@@ -133,6 +133,16 @@ class _SettingsTabState extends State<SettingsTab> {
           _Group(
             children: [
               _Tile(
+                key: const Key('tile-account-details'),
+                icon: Icons.badge_outlined,
+                title: 'Account Details',
+                subtitle: 'Hidden until you enter your password',
+                trailing: const _Chevron(),
+                onTap: () =>
+                    Navigator.pushNamed(context, AppRoutes.accountDetails),
+              ),
+
+              _Tile(
                 key: const Key('tile-change-password'),
                 icon: Icons.lock_outline,
                 title: 'Change Password',
