@@ -8,6 +8,8 @@ import '../services/detection_tracker.dart';
 import '../services/detector/money_detector.dart';
 import '../services/frame_analyzer.dart';
 
+import 'dart:ui' show Rect;
+
 /// Runs the detector on camera frames and keeps the steady result, plus the
 /// scanning tips and the "something is wrong" states.
 /// One instance lives as long as the scanner screen is open.
@@ -26,6 +28,10 @@ class ScannerProvider extends ChangeNotifier {
 
   /// Width / height of the upright camera picture (the screen sets it).
   double frameAspect = 9 / 16;
+
+  /// The part of the camera picture (0..1) that is visible on screen.
+  /// Only items inside it are counted, so what you see is what is counted.
+  Rect visibleRegion = const Rect.fromLTWH(0, 0, 1, 1);
 
   ScannerProvider({
     required this.detector,
@@ -144,7 +150,13 @@ class ScannerProvider extends ChangeNotifier {
 
       _failures = 0;
       final before = _detections.length;
-      _detections = tracker.update(raw);
+      // Count only what is visible on screen (the preview is cropped to fit).
+      final inView = [
+        for (final d in raw)
+          if (visibleRegion.contains(d.box.center)) d,
+      ];
+
+      _detections = tracker.update(inView);
       if (_detections.isNotEmpty) _lastItemsAt = _now();
       final added = _detections.length - before;
       _refreshGuidance();
@@ -175,6 +187,7 @@ class ScannerProvider extends ChangeNotifier {
       detections: _detections,
       signals: _signals,
       frameAspect: frameAspect,
+      visible: visibleRegion,
     );
     final active = _guidance.update(raw);
     _tips = [

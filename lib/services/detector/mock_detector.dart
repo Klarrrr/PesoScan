@@ -84,10 +84,11 @@ class MockDetector implements MoneyDetector, DemoCapable {
   }
 
   /// Two coins overlapping and a third close by: "too close together".
+  /// Two coins almost on top of each other: heavy overlap.
   List<_MockItem> _crowdedScene() => [
-    _item(MoneyClasses.coins, 0.40, 0.45, 0.16),
-    _item(MoneyClasses.coins, 0.50, 0.47, 0.16),
-    _item(MoneyClasses.coins, 0.70, 0.62, 0.16),
+    _item(MoneyClasses.coins, 0.45, 0.45, 0.16),
+    _item(MoneyClasses.coins, 0.48, 0.46, 0.16),
+    _item(MoneyClasses.coins, 0.72, 0.64, 0.16),
   ];
 
   /// One coin sticking out of the right edge, one touching the left edge.
