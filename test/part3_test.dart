@@ -34,7 +34,7 @@ void main() {
     // Page 2
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    expect(find.text('Avoid Overlapping'), findsOneWidget);
+    expect(find.text('Overlapping'), findsOneWidget);
 
     // Page 3: button changes, Skip stays (as in the prototype)
     await tester.tap(find.text('Next'));
