@@ -115,8 +115,8 @@ class EmptyScanCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Text(
-              'Put them flat on a plain surface, inside the gold corners, '
-              'with good light.',
+              'Put them flat on a plain surface, in good light, then point '
+              'the camera at them.',
               style: TextStyle(
                 color: c.textSecondary,
                 fontSize: 13,

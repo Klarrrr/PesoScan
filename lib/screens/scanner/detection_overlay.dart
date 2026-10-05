@@ -27,15 +27,17 @@ class DetectionOverlay extends StatelessWidget {
             area: constraints.biggest,
             frameAspect: frameAspect,
           );
-          return Stack(
-            clipBehavior: Clip.none,
-            children: [
-              for (final d in detections)
-                Positioned.fromRect(
-                  rect: mapper.toArea(d.box),
-                  child: _DetectionBox(detection: d),
-                ),
-            ],
+          // ClipRect: nothing is drawn outside the camera area.
+          return ClipRect(
+            child: Stack(
+              children: [
+                for (final d in detections)
+                  Positioned.fromRect(
+                    rect: mapper.toArea(d.box),
+                    child: _DetectionBox(detection: d),
+                  ),
+              ],
+            ),
           );
         },
       ),

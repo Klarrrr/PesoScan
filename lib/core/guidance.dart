@@ -10,13 +10,13 @@ import 'constants.dart';
 /// the first active one is shown first.
 enum GuidanceTip {
   itemsOutsideFrame(
-    'Item partly outside the frame',
-    'Move the camera so every coin and bill is inside the gold corners.',
+    'Item cut off at the edge',
+    'Move the camera so every coin and bill is fully in view.',
     Icons.crop_free_rounded,
   ),
   itemsTooClose(
-    'Items are too close together',
-    'Spread them out. Leave at least 5 mm between items.',
+    'Items overlap too much',
+    'Move them apart a little so each one can be seen.',
     Icons.open_with_rounded,
   ),
   tooDark(
@@ -31,12 +31,12 @@ enum GuidanceTip {
   ),
   moveCloser(
     'Move a little closer',
-    'Hold the camera about 20–30 cm above the items.',
+    'Get closer so each coin and bill looks clear.',
     Icons.zoom_in_rounded,
   ),
   moveBack(
     'Move a little farther',
-    'Hold the camera about 20–30 cm above the items.',
+    'Move back a little so every item fits in the view.',
     Icons.zoom_out_rounded,
   ),
   tooBright(
@@ -51,36 +51,39 @@ enum GuidanceTip {
   const GuidanceTip(this.title, this.message, this.icon);
 }
 
-// How big a normal item looks at the right distance, as a share of the
+// How big a normal item looks at a good distance, as a share of the
 // picture's height. First guesses: calibrate with the real model.
 const _typicalCoinSize = 0.12;
 const _typicalBillSize = 0.28;
 
-bool _isOutside(Rect b) =>
-    b.left < 0.005 || b.top < 0.005 || b.right > 0.995 || b.bottom > 0.995;
+/// True if the box touches the edge of the VISIBLE area [v].
+bool _isOutside(Rect b, Rect v) =>
+    b.left < v.left + 0.005 ||
+    b.top < v.top + 0.005 ||
+    b.right > v.right - 0.005 ||
+    b.bottom > v.bottom - 0.005;
 
 /// The frame is taller than wide, so x and y are not the same size.
-/// We measure everything in "picture heights" to keep distances honest.
+/// We measure everything in "picture heights" to keep areas honest.
 Rect _inHeightUnits(Rect b, double aspect) =>
     Rect.fromLTRB(b.left * aspect, b.top, b.right * aspect, b.bottom);
 
 double _shortSide(Rect b, double aspect) =>
     math.min(b.width * aspect, b.height);
 
-bool _anyTooClose(List<Detection> items, double aspect) {
+/// True if two items overlap by MORE than [AppConstants.maxOverlapShare] of
+/// the smaller one. A small overlap is fine: the model handles it.
+bool _anyOverlappingTooMuch(List<Detection> items, double aspect) {
   for (var i = 0; i < items.length; i++) {
     for (var j = i + 1; j < items.length; j++) {
-      final a = items[i].box;
-      final b = items[j].box;
-      final gap =
-          AppConstants.minGapShare *
-          math.min(_shortSide(a, aspect), _shortSide(b, aspect));
-      // Grow one box by the minimum gap: if it now touches the other,
-      // they were closer than allowed (or already overlapping).
-      if (_inHeightUnits(
-        a,
-        aspect,
-      ).inflate(gap).overlaps(_inHeightUnits(b, aspect))) {
+      final a = _inHeightUnits(items[i].box, aspect);
+      final b = _inHeightUnits(items[j].box, aspect);
+      if (!a.overlaps(b)) continue;
+
+      final overlap = a.intersect(b);
+      final overlapArea = overlap.width * overlap.height;
+      final smaller = math.min(a.width * a.height, b.width * b.height);
+      if (smaller > 0 && overlapArea / smaller > AppConstants.maxOverlapShare) {
         return true;
       }
     }
@@ -101,10 +104,12 @@ double _medianSizeRatio(List<Detection> items, double aspect) {
 }
 
 /// Which tips apply RIGHT NOW (before smoothing over time).
+/// [visible] is the part of the camera picture (0..1) you can see on screen.
 Set<GuidanceTip> evaluateGuidance({
   required List<Detection> detections,
   FrameSignals? signals,
   double frameAspect = 9 / 16,
+  Rect visible = const Rect.fromLTWH(0, 0, 1, 1),
 }) {
   final tips = <GuidanceTip>{};
 
@@ -119,16 +124,16 @@ Set<GuidanceTip> evaluateGuidance({
 
   if (detections.isEmpty) return tips;
 
-  if (detections.any((d) => _isOutside(d.box))) {
+  if (detections.any((d) => _isOutside(d.box, visible))) {
     tips.add(GuidanceTip.itemsOutsideFrame);
   }
-  if (_anyTooClose(detections, frameAspect)) {
+  if (_anyOverlappingTooMuch(detections, frameAspect)) {
     tips.add(GuidanceTip.itemsTooClose);
   }
 
-  // Distance is judged only from items that are fully inside the picture
+  // Distance is judged only from items that are fully in view
   // (a cut-off item looks smaller than it is).
-  final whole = detections.where((d) => !_isOutside(d.box)).toList();
+  final whole = detections.where((d) => !_isOutside(d.box, visible)).toList();
   if (whole.isNotEmpty) {
     final ratio = _medianSizeRatio(whole, frameAspect);
     if (ratio < 0.4) {

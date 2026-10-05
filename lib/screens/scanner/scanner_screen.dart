@@ -26,6 +26,7 @@ import 'guidance_widgets.dart';
 import 'problem_widgets.dart';
 import 'scan_result_sheet.dart';
 import 'scanner_widgets.dart';
+import '../../core/frame_mapper.dart';
 
 /// Pages 7-9 of the prototype: live camera, detections, capture and result,
 /// scanning tips, and clear messages when something is wrong.
@@ -427,6 +428,17 @@ class _ScannerViewState extends State<_ScannerView>
     return size.height / size.width;
   }
 
+  /// Remember which part of the camera picture is visible in this area.
+  /// The preview fills the area and crops the rest, so items in the cropped
+  /// part must not be counted: you could not see them.
+  void _updateVisibleRegion(Size area) {
+    if (area.isEmpty) return;
+    context.read<ScannerProvider>().visibleRegion = FrameMapper(
+      area: area,
+      frameAspect: _frameAspect,
+    ).visibleFrameRect;
+  }
+
   Widget _buildPreview() {
     if (_cameraError != null) {
       return CameraErrorView(
@@ -445,15 +457,20 @@ class _ScannerViewState extends State<_ScannerView>
     }
 
     final size = controller.value.previewSize!;
-    return ClipRect(
-      child: FittedBox(
-        fit: BoxFit.cover,
-        child: SizedBox(
-          width: size.height,
-          height: size.width,
-          child: CameraPreview(controller),
-        ),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _updateVisibleRegion(constraints.biggest);
+        return ClipRect(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: size.height,
+              height: size.width,
+              child: CameraPreview(controller),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -478,15 +495,7 @@ class _ScannerViewState extends State<_ScannerView>
                 children: [
                   _buildPreview(),
                   const GridOverlay(),
-                  // The dashed "put your coins here" frame, until items appear.
-                  Consumer<ScannerProvider>(
-                    builder: (context, scanner, _) => PlacementGuide(
-                      visible:
-                          hasCamera &&
-                          scanner.count == 0 &&
-                          !scanner.hasProblem,
-                    ),
-                  ),
+
                   // Only the overlays rebuild ~10x per second, not the camera.
                   Consumer<ScannerProvider>(
                     builder: (context, scanner, _) => DetectionOverlay(
