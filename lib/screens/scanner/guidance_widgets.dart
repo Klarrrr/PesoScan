@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
-import '../../core/constants.dart';
 import '../../core/guidance.dart';
 import '../../services/frame_analyzer.dart';
 import '../../widgets/gold_button.dart';
@@ -76,7 +75,7 @@ class ScanStatusStrip extends StatelessWidget {
                       ? 'Closer'
                       : back
                       ? 'Back'
-                      : AppConstants.suggestedDistance,
+                      : 'Distance',
                   level: (closer || back) ? _Level.warn : _Level.neutral,
                 ),
               ],
@@ -311,12 +310,13 @@ class ScanGuideSheet extends StatelessWidget {
     (
       Icons.open_with_rounded,
       'Spread the items out',
-      'Leave at least 5 mm between coins and bills. Do not stack them.',
+      'Small overlaps are fine, but do not stack coins or cover them with bills.',
     ),
     (
       Icons.straighten_rounded,
-      'Hold the camera 20–30 cm above',
-      'Keep everything inside the gold corners.',
+      'Keep a good distance',
+      'Hold the camera far enough to see everything and close enough that '
+          'each item looks clear. Everything in the camera view is counted.',
     ),
     (
       Icons.wb_sunny_outlined,

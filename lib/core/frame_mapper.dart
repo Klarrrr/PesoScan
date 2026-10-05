@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 /// Converts a box from the camera frame (0..1) to pixels on the screen area.
@@ -38,6 +39,19 @@ class FrameMapper {
       o.dy + normalized.top * d.height,
       o.dx + normalized.right * d.width,
       o.dy + normalized.bottom * d.height,
+    );
+  }
+
+  /// The part of the camera picture (0..1) that can really be seen in the
+  /// area. The rest is cropped off, so nothing there should be counted.
+  Rect get visibleFrameRect {
+    final d = displaySize;
+    final o = offset;
+    return Rect.fromLTRB(
+      math.max(0.0, -o.dx / d.width),
+      math.max(0.0, -o.dy / d.height),
+      math.min(1.0, (area.width - o.dx) / d.width),
+      math.min(1.0, (area.height - o.dy) / d.height),
     );
   }
 }

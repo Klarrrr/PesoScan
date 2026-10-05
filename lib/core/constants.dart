@@ -26,16 +26,14 @@ class AppConstants {
   /// Average change between two looks at the picture (0 = perfectly still).
   static const double shakyAbove = 16;
 
-  /// A gap smaller than this share of an item's size counts as "too close".
-  static const double minGapShare = 0.15;
-
   /// How often the picture is checked for light and shaking.
   static const Duration analysisInterval = Duration(milliseconds: 250);
 
-  /// "20-30 cm" with an en dash.
-  static const String suggestedDistance = '20\u201330 cm';
-
   // ---- Problem states (Part 21) ----
+  /// Items are only flagged when MORE than this share of the smaller item is
+  /// covered by another one. Small overlaps are fine: the model is trained
+  /// to handle them.
+  static const double maxOverlapShare = 0.40;
 
   /// Nothing found for this long = show the "No coins or bills found" card.
   static const Duration noItemsAfter = Duration(seconds: 8);
