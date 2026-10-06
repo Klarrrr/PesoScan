@@ -1,7 +1,7 @@
 import 'info_section.dart';
 
 /// ⚠️ Replace this with your team's real email before you publish.
-const String contactEmail = 'your-team@example.com';
+const String contactEmail = 'pesoscanadmin@gmail.com';
 
 const String legalLastUpdated = 'October 2026';
 
@@ -141,7 +141,7 @@ const List<InfoSection> privacySections = [
   ),
   InfoSection(
     '10. Children',
-    'PesoScan is not designed for young children. If you are under 18, '
+    'PesoScan is recommended for users aged 12 and above. If you are under 12, '
         'please use it with a parent or guardian.',
   ),
   InfoSection(
