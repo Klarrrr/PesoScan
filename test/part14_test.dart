@@ -1,5 +1,3 @@
-import 'dart:ui' show Rect;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesoscan/core/app_theme.dart';
