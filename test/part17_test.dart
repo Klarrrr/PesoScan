@@ -1,7 +1,6 @@
 // ignore_for_file: unused_import
 
 import 'dart:typed_data';
-import 'dart:ui' show Rect;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

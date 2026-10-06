@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui' show Rect;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
