@@ -91,14 +91,10 @@ void main() {
       },
     );
 
-    test('an item touching the picture edge is "outside the frame"', () {
+    test('an item touching the picture edge is NOT a problem', () {
       expect(
         evaluateGuidance(detections: [coin(around(0.95, 0.5, 0.16))]),
-        contains(GuidanceTip.itemsOutsideFrame),
-      );
-      expect(
-        evaluateGuidance(detections: [coin(around(0.5, 0.5, 0.16))]),
-        isNot(contains(GuidanceTip.itemsOutsideFrame)),
+        isEmpty,
       );
     });
 
@@ -125,9 +121,7 @@ void main() {
     test('an item cut off by the edge does not trigger distance advice', () {
       // It looks small only because the edge cuts it.
       final cut = coin(const Rect.fromLTRB(0.97, 0.4, 1.0, 0.5));
-      final tips = evaluateGuidance(detections: [cut]);
-      expect(tips, contains(GuidanceTip.itemsOutsideFrame));
-      expect(tips, isNot(contains(GuidanceTip.moveCloser)));
+      expect(evaluateGuidance(detections: [cut]), isEmpty);
     });
   });
 
@@ -217,11 +211,10 @@ void main() {
       expect(tips, contains(GuidanceTip.itemsTooClose));
     });
 
-    test('edge scene triggers "outside the frame"', () async {
-      final tips = evaluateGuidance(
-        detections: await sceneOf(MockScenario.edge),
-      );
-      expect(tips, contains(GuidanceTip.itemsOutsideFrame));
+    test('edge scene: items cut off by the edge are not a problem', () async {
+      final items = await sceneOf(MockScenario.edge);
+      expect(items.length, 3);
+      expect(evaluateGuidance(detections: items), isEmpty);
     });
 
     test('normal scenes never trigger a warning', () async {

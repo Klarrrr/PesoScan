@@ -9,11 +9,6 @@ import 'constants.dart';
 /// The things we can tell the user. The ORDER is the priority:
 /// the first active one is shown first.
 enum GuidanceTip {
-  itemsOutsideFrame(
-    'Item cut off at the edge',
-    'Move the camera so every coin and bill is fully in view.',
-    Icons.crop_free_rounded,
-  ),
   itemsTooClose(
     'Items overlap too much',
     'Move them apart a little so each one can be seen.',
@@ -124,9 +119,6 @@ Set<GuidanceTip> evaluateGuidance({
 
   if (detections.isEmpty) return tips;
 
-  if (detections.any((d) => _isOutside(d.box, visible))) {
-    tips.add(GuidanceTip.itemsOutsideFrame);
-  }
   if (_anyOverlappingTooMuch(detections, frameAspect)) {
     tips.add(GuidanceTip.itemsTooClose);
   }

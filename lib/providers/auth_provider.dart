@@ -35,6 +35,20 @@ class AuthProvider extends ChangeNotifier {
   String? get email => _email;
   bool get isSignedIn => _status == AuthStatus.signedIn;
 
+  /// When the account was created, if known.
+  DateTime? get memberSince => _readDate((user) => user.createdAt);
+
+  /// When the user last signed in, if known.
+  DateTime? get lastSignIn => _readDate((user) => user.lastSignInAt);
+
+  DateTime? _readDate(String? Function(User user) pick) {
+    if (!SupabaseService.isReady) return null;
+    final user = _client.auth.currentUser;
+    if (user == null) return null;
+    final text = pick(user);
+    return text == null ? null : DateTime.tryParse(text);
+  }
+
   SupabaseClient get _client => SupabaseService.client;
 
   AuthResult? _notReady() => SupabaseService.isReady
@@ -357,6 +371,55 @@ class AuthProvider extends ChangeNotifier {
     try {
       await _client.auth.updateUser(UserAttributes(password: newPassword));
       _signInInProgress = false;
+      final user = _client.auth.currentUser;
+      if (user != null) await _remember(user);
+      return const AuthResult.success();
+    } catch (e) {
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  /// Checks the password of the signed-in user (needs internet). Used before
+  /// showing private details and before changing the password.
+  /// Wrong passwords are limited: 5 tries, then a 5-minute lock.
+  Future<AuthResult> verifyPassword(String password) async {
+    final notReady = _notReady();
+    if (notReady != null) return notReady;
+
+    final email = _email;
+    if (email == null || email.isEmpty) {
+      return const AuthResult.failure('You are not signed in.');
+    }
+
+    final key = 'verify-password:$email';
+    final locked = await _limiter.lockRemaining(key);
+    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+
+    try {
+      await _client.auth.signInWithPassword(email: email, password: password);
+      await _limiter.reset(key);
+      return const AuthResult.success();
+    } on AuthException catch (e) {
+      if (e.code == 'invalid_credentials') {
+        return _countFailure(key, 'Incorrect password.');
+      }
+      return AuthResult.failure(friendlyAuthError(e));
+    } catch (e) {
+      return AuthResult.failure(friendlyAuthError(e));
+    }
+  }
+
+  /// Changes the password of the signed-in user. The current password must be
+  /// right. This NEVER signs the user out.
+  Future<AuthResult> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final check = await verifyPassword(currentPassword);
+    if (!check.ok) return check;
+
+    try {
+      await _client.auth.updateUser(UserAttributes(password: newPassword));
       final user = _client.auth.currentUser;
       if (user != null) await _remember(user);
       return const AuthResult.success();
