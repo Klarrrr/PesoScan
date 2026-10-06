@@ -30,24 +30,29 @@ class DetectionOverlay extends StatelessWidget {
           // ClipRect: nothing is drawn outside the camera area.
           return ClipRect(
             child: Stack(
-              children: [
-                for (final d in detections)
-                  Positioned.fromRect(
-                    rect: mapper.toArea(d.box),
-                    child: _DetectionBox(detection: d),
-                  ),
-              ],
+              children: [for (final d in detections) _place(d, mapper)],
             ),
           );
         },
       ),
     );
   }
+
+  Widget _place(Detection d, FrameMapper mapper) {
+    final rect = mapper.toArea(d.box);
+    return Positioned.fromRect(
+      rect: rect,
+      // At the top edge a label above the box would be cut off, so it goes
+      // inside the box instead.
+      child: _DetectionBox(detection: d, labelInside: rect.top < 16),
+    );
+  }
 }
 
 class _DetectionBox extends StatelessWidget {
   final Detection detection;
-  const _DetectionBox({required this.detection});
+  final bool labelInside;
+  const _DetectionBox({required this.detection, required this.labelInside});
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +81,7 @@ class _DetectionBox extends StatelessWidget {
         // The value label sits on the top-left edge of the box.
         Positioned(
           left: 6,
-          top: -11,
+          top: labelInside ? 4 : -11,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(

@@ -150,11 +150,14 @@ class ScannerProvider extends ChangeNotifier {
 
       _failures = 0;
       final before = _detections.length;
-      // Count only what is visible on screen (the preview is cropped to fit).
+
+      // Count every item that is at least partly visible on screen, even if
+      // the edge of the picture cuts it off.
       final inView = [
         for (final d in raw)
-          if (visibleRegion.contains(d.box.center)) d,
+          if (_visibleShare(d.box) >= AppConstants.minVisibleShare) d,
       ];
+      _detections = tracker.update(inView);
 
       _detections = tracker.update(inView);
       if (_detections.isNotEmpty) _lastItemsAt = _now();
@@ -180,6 +183,14 @@ class ScannerProvider extends ChangeNotifier {
     _signals = signals;
     _refreshGuidance();
     notifyListeners();
+  }
+
+  /// How much of [box] (0..1) lies inside the visible part of the picture.
+  double _visibleShare(Rect box) {
+    final area = box.width * box.height;
+    if (area <= 0 || !box.overlaps(visibleRegion)) return 0;
+    final inside = box.intersect(visibleRegion);
+    return inside.width * inside.height / area;
   }
 
   void _refreshGuidance() {
