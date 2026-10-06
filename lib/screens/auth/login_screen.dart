@@ -5,6 +5,8 @@ import '../../core/app_colors.dart';
 import '../../core/app_routes.dart';
 import '../../core/validators.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/terms_consent.dart';
+import '../../widgets/agreement_field.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_scaffold.dart';
 import '../../widgets/gold_button.dart';
@@ -22,7 +24,18 @@ class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _loading = false;
+  bool _agreed = false;
+  bool _agreementError = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Someone who already agreed on this phone does not have to tick again.
+    TermsConsent.isAccepted().then((accepted) {
+      if (mounted && accepted) setState(() => _agreed = true);
+    });
+  }
 
   @override
   void dispose() {
@@ -33,7 +46,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
-    if (!_formKey.currentState!.validate()) return;
+    final formOk = _formKey.currentState!.validate();
+    setState(() => _agreementError = !_agreed);
+    if (!formOk || !_agreed) return;
 
     setState(() {
       _loading = true;
@@ -46,8 +61,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (result.ok) {
+      await TermsConsent.accept();
+      if (!mounted) return;
       setState(() => _loading = false);
-      _onPasswordAccepted(email);
+      openLoginCode(context, email); // the emailed 2-step code comes next
       return;
     }
 
@@ -64,13 +81,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _loading = false;
       _error = result.message;
     });
-  }
-
-  /// TEMPORARY (Part 5): go straight in.
-  /// Part 6 replaces this with the emailed-code step.
-  /// The password was correct and the emailed code has been sent.
-  void _onPasswordAccepted(String email) {
-    openLoginCode(context, email);
   }
 
   @override
@@ -91,6 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               children: [
                 AppTextField(
+                  key: const Key('field-login-email'),
                   controller: _email,
                   label: 'Email',
                   hint: 'you@example.com',
@@ -102,6 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 AppTextField(
+                  key: const Key('field-login-password'),
                   controller: _password,
                   label: 'Password',
                   hint: 'Your password',
@@ -126,16 +138,34 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Text('Forgot password?', style: TextStyle(color: c.gold)),
           ),
         ),
-        const SizedBox(height: 8),
-        GoldButton(label: 'Log In', loading: _loading, onPressed: _submit),
+        AgreementField(
+          agreed: _agreed,
+          showError: _agreementError,
+          onChanged: (value) {
+            if (!mounted) return;
+            setState(() {
+              _agreed = value;
+              if (value) _agreementError = false;
+            });
+          },
+        ),
+        const SizedBox(height: 16),
+        GoldButton(
+          key: const Key('btn-login'),
+          label: 'Log In',
+          loading: _loading,
+          onPressed: _submit,
+        ),
         const SizedBox(height: 20),
-        Wrap(
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              "Don't have an account?",
-              style: TextStyle(color: c.textSecondary),
+            Flexible(
+              child: Text(
+                "Don't have an account?",
+                style: TextStyle(color: c.textSecondary),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             TextButton(
               onPressed: _loading

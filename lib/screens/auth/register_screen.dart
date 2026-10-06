@@ -4,11 +4,12 @@ import 'package:provider/provider.dart';
 import '../../core/app_colors.dart';
 import '../../core/validators.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/terms_consent.dart';
+import '../../widgets/agreement_field.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_scaffold.dart';
 import '../../widgets/gold_button.dart';
 import 'auth_flows.dart';
-import '../../core/app_routes.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -24,6 +25,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _loading = false;
+  bool _agreed = false;
+  bool _agreementError = false;
   String? _error;
 
   @override
@@ -37,7 +40,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
-    if (!_formKey.currentState!.validate()) return;
+    final formOk = _formKey.currentState!.validate();
+    setState(() => _agreementError = !_agreed);
+    if (!formOk || !_agreed) return;
 
     setState(() {
       _loading = true;
@@ -56,13 +61,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _loading = false;
       if (!result.ok) _error = result.message;
     });
-    if (result.ok) openSignupVerification(context, email);
+    if (result.ok) {
+      await TermsConsent.accept();
+      if (!mounted) return;
+      openSignupVerification(context, email);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final text = Theme.of(context).textTheme;
 
     return AuthScaffold(
       title: 'Create Account',
@@ -79,6 +87,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               children: [
                 AppTextField(
+                  key: const Key('field-username'),
                   controller: _username,
                   label: 'Username',
                   hint: 'juan_delacruz',
@@ -89,6 +98,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 16),
                 AppTextField(
+                  key: const Key('field-email'),
                   controller: _email,
                   label: 'Email',
                   hint: 'you@example.com',
@@ -100,6 +110,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 16),
                 AppTextField(
+                  key: const Key('field-password'),
                   controller: _password,
                   label: 'Password',
                   hint: 'At least 8 characters',
@@ -111,6 +122,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 16),
                 AppTextField(
+                  key: const Key('field-confirm-password'),
                   controller: _confirm,
                   label: 'Confirm password',
                   hint: 'Type it again',
@@ -126,36 +138,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          'Use letters and numbers. By creating an account you agree to the:',
-          style: text.bodySmall,
+        const SizedBox(height: 16),
+        AgreementField(
+          agreed: _agreed,
+          showError: _agreementError,
+          onChanged: (value) {
+            if (!mounted) return;
+            setState(() {
+              _agreed = value;
+              if (value) _agreementError = false;
+            });
+          },
         ),
-        Row(
-          children: [
-            TextButton(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.terms),
-              child: Text('Terms of Service', style: TextStyle(color: c.gold)),
-            ),
-            Text('&', style: text.bodySmall),
-            TextButton(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.privacy),
-              child: Text('Privacy Policy', style: TextStyle(color: c.gold)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         GoldButton(
+          key: const Key('btn-create-account'),
           label: 'Create Account',
           loading: _loading,
           onPressed: _submit,
         ),
         const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
-              'Already have an account?',
+              'Already have an account? ',
               style: TextStyle(color: c.textSecondary),
             ),
             TextButton(
