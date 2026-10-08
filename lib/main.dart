@@ -1,3 +1,5 @@
+// ignore_for_file: unused_import
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +16,8 @@ import 'services/scan_repository.dart';
 import 'services/sqlite_scan_repository.dart';
 import 'services/supabase_service.dart';
 import 'widgets/friendly_error_view.dart';
+import 'providers/avatar_provider.dart';
+import 'services/avatar_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,12 +60,17 @@ Future<void> main() async {
   final history = HistoryProvider(repository, auth);
   await history.load();
 
+  // Each account's profile picture (kept on this phone only).
+  final avatar = AvatarProvider(AvatarStore(), auth);
+  await avatar.load();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider.value(value: auth),
         ChangeNotifierProvider.value(value: history),
+        ChangeNotifierProvider.value(value: avatar),
       ],
       child: const PesoScanApp(),
     ),

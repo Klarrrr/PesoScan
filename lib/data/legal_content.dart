@@ -1,9 +1,13 @@
 import 'info_section.dart';
 
 /// ⚠️ Replace this with your team's real email before you publish.
-const String contactEmail = 'your-team@example.com';
+const String contactEmail = 'pesoscanadmin@gmail.com';
 
 const String legalLastUpdated = 'October 2026';
+
+/// The youngest age allowed to use PesoScan. Change it HERE and the Terms,
+/// the Privacy Policy and the tests all follow.
+const int minimumAge = 12;
 
 /// Terms of Service. Have your adviser read it before you present.
 const List<InfoSection> termsSections = [
@@ -31,9 +35,10 @@ const List<InfoSection> termsSections = [
   ),
   InfoSection(
     '4. Your account',
-    'You need a valid email address to create an account. Keep your password '
-        'and email codes private. You are responsible for what happens under '
-        'your account. We may limit or close accounts that are misused.',
+    'PesoScan is for users aged $minimumAge and above. You need a valid '
+        'email address to create an account. Keep your password and email '
+        'codes private. You are responsible for what happens under your '
+        'account. We may limit or close accounts that are misused.',
   ),
   InfoSection(
     '5. Acceptable use',
@@ -76,7 +81,7 @@ const List<InfoSection> termsSections = [
 const List<InfoSection> privacySections = [
   InfoSection(
     '1. The short version',
-    'Your scans and photos stay on your phone. We keep only what is needed '
+    'On your phone only: your profile picture, your scan results, scan photos and app settings. We keep only what is needed '
         'for your account: your email, your username and your (protected) '
         'password. There are no ads, no tracking and we do not sell your '
         'information.',
@@ -141,8 +146,14 @@ const List<InfoSection> privacySections = [
   ),
   InfoSection(
     '10. Children',
-    'PesoScan is not designed for young children. If you are under 18, '
-        'please use it with a parent or guardian.',
+    'PesoScan is for users aged $minimumAge and above. We do not knowingly '
+        'collect personal information from children under $minimumAge, and '
+        'children under $minimumAge must not create an account. If we learn '
+        'that an account belongs to a child under $minimumAge, we will delete '
+        'it. If you are between $minimumAge and 17, we encourage you to talk '
+        'to a parent or guardian about how your information is used. If you '
+        'believe a child under $minimumAge has an account, email us at '
+        '$contactEmail and we will remove it.',
   ),
   InfoSection(
     '11. Changes to this policy',
