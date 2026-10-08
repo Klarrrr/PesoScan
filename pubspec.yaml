@@ -84,6 +84,7 @@ flutter:
     - assets/models/
     - assets/sounds/
     - assets/coins/
+    - env.json
 
   fonts:
     - family: Outfit
