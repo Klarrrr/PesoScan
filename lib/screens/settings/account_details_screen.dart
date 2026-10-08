@@ -1,3 +1,5 @@
+// ignore_for_file: unused_import
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -7,12 +9,17 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_routes.dart';
-import '../../core/app_theme.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/avatar_provider.dart';
 import '../../providers/history_provider.dart';
+import '../../services/photo_picker.dart';
 import '../../widgets/gold_button.dart';
+import '../../widgets/photo_options_sheet.dart';
 import '../../widgets/screen_header.dart';
+import '../../widgets/user_avatar.dart';
 import '../../widgets/verify_password_dialog.dart';
+import '../scanner/open_scanner.dart';
+import '../../services/permission_service.dart';
 
 /// "juan.dela@gmail.com" becomes "ju" + 6 dots + "@gmail.com".
 String maskEmail(String email) {
@@ -31,6 +38,7 @@ String maskEmail(String email) {
 
 /// Account details. Private details stay hidden until the user types their
 /// password. The password itself is never shown: nobody can read it.
+/// The profile photo can be changed any time (it is not private).
 class AccountDetailsScreen extends StatefulWidget {
   const AccountDetailsScreen({super.key});
 
@@ -85,6 +93,53 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen>
     _relock = Timer(_showFor, _lock);
   }
 
+  Future<void> _changePhoto() async {
+    final avatar = context.read<AvatarProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    final choice = await PhotoOptionsSheet.show(
+      context,
+      hasPhoto: avatar.hasPhoto,
+    );
+    if (choice == null || !mounted) return;
+
+    if (choice == PhotoChoice.remove) {
+      await avatar.remove();
+      return;
+    }
+
+    // The picture picker asks for the camera permission by itself.
+    final result = await avatar.choose(
+      choice == PhotoChoice.camera ? PhotoSource.camera : PhotoSource.gallery,
+    );
+    if (!mounted) return;
+
+    switch (result) {
+      case AvatarChange.changed:
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Profile photo updated')),
+        );
+      case AvatarChange.cameraDenied:
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text('Camera access is needed to take a photo.'),
+            action: SnackBarAction(
+              label: 'Settings',
+              onPressed: PermissionService.openSettings,
+            ),
+          ),
+        );
+      case AvatarChange.failed:
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Could not change the photo. Please try again.'),
+          ),
+        );
+      case AvatarChange.cancelled:
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -113,31 +168,40 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen>
             const SizedBox(height: 20),
             Row(
               children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: c.goldGradient,
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    username.characters.first.toUpperCase(),
-                    style: TextStyle(
-                      fontFamily: AppFonts.heading,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 24,
-                      color: c.onGold,
-                    ),
+                GestureDetector(
+                  key: const Key('btn-change-photo'),
+                  onTap: _changePhoto,
+                  child: UserAvatar(
+                    name: username,
+                    size: 72,
+                    showEditBadge: true,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 16),
                 Expanded(
-                  child: Text(
-                    username,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.titleLarge,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.titleLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      GestureDetector(
+                        key: const Key('link-change-photo'),
+                        onTap: _changePhoto,
+                        child: Text(
+                          'Change photo',
+                          style: TextStyle(
+                            color: c.gold,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

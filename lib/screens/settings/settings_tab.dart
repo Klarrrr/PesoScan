@@ -1,3 +1,5 @@
+// ignore_for_file: unused_import
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +17,7 @@ import '../../providers/settings_provider.dart';
 import '../../services/feedback_service.dart';
 import '../../widgets/confirm_dialog.dart';
 import '../../widgets/peso_bottom_bar.dart';
+import '../../widgets/user_avatar.dart';
 
 /// Pages 12-13 of the prototype, plus Account and Exit App.
 class SettingsTab extends StatefulWidget {
@@ -490,61 +493,54 @@ class _AccountCard extends StatelessWidget {
     final name = (username == null || username!.isEmpty)
         ? 'Your account'
         : username!;
-    final initial = name.characters.first.toUpperCase();
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: c.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: c.goldGradient,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initial,
-              style: TextStyle(
-                fontFamily: AppFonts.heading,
-                fontWeight: FontWeight.w700,
-                fontSize: 22,
-                color: c.onGold,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Material(
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: c.border),
+        ),
+        child: InkWell(
+          key: const Key('card-account'),
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => Navigator.pushNamed(context, AppRoutes.accountDetails),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: AppFonts.heading,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
-                    color: c.textPrimary,
+                UserAvatar(name: name, size: 50),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: AppFonts.heading,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 17,
+                          color: c.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        email ?? 'Not signed in',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  email ?? 'Not signed in',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                Icon(Icons.chevron_right_rounded, color: c.textMuted),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
