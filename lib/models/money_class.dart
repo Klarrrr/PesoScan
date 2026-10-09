@@ -54,9 +54,21 @@ class MoneyClasses {
   MoneyClasses._();
 
   static const List<MoneyClass> all = [
-    // ---- Coins (ids 1 to 9) ----
-    MoneyClass(id: 1, valueCentavos: 5, type: MoneyType.coin, design: 'NGC'),
-    MoneyClass(id: 2, valueCentavos: 10, type: MoneyType.coin, design: 'NGC'),
+    // ---- Coins (ids 1 to 10) ----
+    MoneyClass(
+      id: 1,
+      valueCentavos: 5,
+      type: MoneyType.coin,
+      design: 'NGC',
+      notes: 'NGC series',
+    ),
+    MoneyClass(
+      id: 2,
+      valueCentavos: 25,
+      type: MoneyType.coin,
+      design: 'NGC',
+      notes: 'NGC series',
+    ),
     MoneyClass(
       id: 3,
       valueCentavos: 100,
@@ -69,7 +81,7 @@ class MoneyClasses {
       valueCentavos: 100,
       type: MoneyType.coin,
       design: 'NGC',
-      notes: 'NGC & NGC Minted',
+      notes: 'NGC series',
     ),
     MoneyClass(
       id: 5,
@@ -83,52 +95,53 @@ class MoneyClasses {
       valueCentavos: 500,
       type: MoneyType.coin,
       design: 'NGC',
-      notes: 'NGC Round (2017-2019) & NGC Nonagonal (2019+)',
+      notes: 'NGC Round (2017-2019)',
     ),
     MoneyClass(
       id: 7,
+      valueCentavos: 500,
+      type: MoneyType.coin,
+      design: 'NGC',
+      notes: 'NGC Nonagonal (2019+)',
+    ),
+    MoneyClass(
+      id: 8,
       valueCentavos: 1000,
       type: MoneyType.coin,
       design: 'BSP',
       notes: 'Bonifacio + Mabini',
     ),
     MoneyClass(
-      id: 8,
+      id: 9,
       valueCentavos: 1000,
       type: MoneyType.coin,
       design: 'NGC',
       notes: 'Mabini only',
     ),
     MoneyClass(
-      id: 9,
+      id: 10,
       valueCentavos: 2000,
       type: MoneyType.coin,
       design: 'NGC',
       notes: 'NGC series',
     ),
 
-    // ---- Bills: NGC series (ids 10 to 15) ----
+    // ---- Bills: NGC Paper series (ids 11 to 15) ----
     MoneyClass(
-      id: 10,
+      id: 11,
       valueCentavos: 2000,
       type: MoneyType.bill,
       design: 'NGC Series',
     ),
     MoneyClass(
-      id: 11,
+      id: 12,
       valueCentavos: 5000,
       type: MoneyType.bill,
       design: 'NGC Series',
     ),
     MoneyClass(
-      id: 12,
-      valueCentavos: 10000,
-      type: MoneyType.bill,
-      design: 'NGC Series',
-    ),
-    MoneyClass(
       id: 13,
-      valueCentavos: 20000,
+      valueCentavos: 10000,
       type: MoneyType.bill,
       design: 'NGC Series',
     ),
