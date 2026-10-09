@@ -200,7 +200,7 @@ class _CoinGrid extends StatelessWidget {
         crossAxisCount: 2,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 0.64,
+        childAspectRatio: 0.60,
       ),
       itemCount: coins.length,
       itemBuilder: (context, i) => _CoinCard(money: coins[i]),
