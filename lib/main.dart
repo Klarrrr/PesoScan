@@ -12,7 +12,6 @@ import 'providers/auth_provider.dart';
 import 'providers/avatar_provider.dart';
 import 'providers/history_provider.dart';
 import 'providers/settings_provider.dart';
-import 'screens/scan_screen.dart';
 import 'services/app_database.dart';
 import 'services/avatar_store.dart';
 import 'services/scan_repository.dart';

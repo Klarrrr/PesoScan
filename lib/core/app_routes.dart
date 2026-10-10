@@ -15,7 +15,7 @@ import '../screens/info/legal_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/onboarding/permission_screen.dart';
 import '../screens/onboarding/splash_screen.dart';
-import '../screens/scan_screen.dart';
+import '../screens/scanner/scanner_screen.dart'; // <-- Restored custom UI import
 import '../screens/settings/account_details_screen.dart';
 import '../screens/settings/change_password_screen.dart';
 import '../screens/shell/main_shell.dart';
@@ -84,7 +84,7 @@ class AppRoutes {
         screen = const MainShell();
       case scanner:
       case scan:
-        screen = const ScanScreen();
+        screen = const ScannerScreen(); // <-- Restored custom UI class
       case historyDetail:
         final record = settings.arguments;
         screen = record is ScanRecord
