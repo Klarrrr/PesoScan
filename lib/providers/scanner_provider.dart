@@ -1,25 +1,19 @@
 import 'package:flutter/foundation.dart';
 
+import 'dart:ui' show Rect;
+
 import '../core/constants.dart';
 import '../core/guidance.dart';
 import '../core/scan_math.dart' as math;
 import '../models/detection.dart';
 import '../services/detection_tracker.dart';
-import '../services/detector/money_detector.dart';
 import '../services/frame_analyzer.dart';
 
-import 'dart:ui' show Rect;
-
-/// Runs the detector on camera frames and keeps the steady result, plus the
-/// scanning tips and the "something is wrong" states.
-/// One instance lives as long as the scanner screen is open.
+/// Manages the state of the scanner screen, receiving detections from YOLOView.
+/// Keeps the steady result, plus the scanning tips and the "something is wrong" states.
 class ScannerProvider extends ChangeNotifier {
-  final MoneyDetector detector;
   final DetectionTracker tracker;
-
-  /// Minimum time between detector runs (tests pass Duration.zero).
-  final Duration minInterval;
-
+  final GuidanceTracker _guidance;
   final DateTime Function() _now;
 
   /// Called when the number of confirmed items goes UP, with how many
@@ -34,26 +28,24 @@ class ScannerProvider extends ChangeNotifier {
   Rect visibleRegion = const Rect.fromLTWH(0, 0, 1, 1);
 
   ScannerProvider({
-    required this.detector,
     DetectionTracker? tracker,
-    this.minInterval = AppConstants.detectionInterval,
     GuidanceTracker? guidanceTracker,
     DateTime Function()? now,
   }) : tracker = tracker ?? DetectionTracker(),
        _guidance = guidanceTracker ?? GuidanceTracker(),
        _now = now ?? DateTime.now;
 
-  final GuidanceTracker _guidance;
   List<Detection> _detections = const [];
   FrameSignals? _signals;
   List<GuidanceTip> _tips = const [];
+
   bool _ready = false;
-  bool _busy = false;
   bool _frozen = false;
   bool _disposed = false;
-  String? _startupError;
-  int _failures = 0;
-  DateTime _lastRun = DateTime.fromMillisecondsSinceEpoch(0);
+
+  final String? _startupError = null;
+  final int _failures = 0;
+
   late DateTime _lastItemsAt = _now();
 
   List<Detection> get detections => _detections;
@@ -72,13 +64,9 @@ class ScannerProvider extends ChangeNotifier {
 
   // ---- Problem states -------------------------------------------------
 
-  /// Why the detector could not start (null = it started fine).
   String? get startupError => _startupError;
   bool get hasStartupError => _startupError != null;
-
-  /// The detector failed several times in a row.
   bool get processingFailed => _failures >= AppConstants.failuresBeforeError;
-
   bool get hasProblem => hasStartupError || processingFailed;
 
   /// Scanning for a while and nothing was found.
@@ -89,92 +77,46 @@ class ScannerProvider extends ChangeNotifier {
       _detections.isEmpty &&
       _now().difference(_lastItemsAt) >= AppConstants.noItemsAfter;
 
-  /// True while the results are invented (fake detector).
-  bool get isDemoMode {
-    final d = detector;
-    return d is DemoCapable && (d as DemoCapable).isDemo;
-  }
-
-  String? get demoReason {
-    final d = detector;
-    if (d is DemoCapable) {
-      final demo = d as DemoCapable;
-      return demo.isDemo ? demo.demoReason : null;
-    }
-    return null;
-  }
+  // YOLOView integration no longer utilizes the mock/demo detector logic
+  bool get isDemoMode => false;
+  String? get demoReason => null;
 
   // ---------------------------------------------------------------------
 
-  /// Load the model. Frames sent before this finishes are ignored.
-  /// A problem does not throw: it becomes [startupError].
-  Future<void> start() async {
-    _startupError = null;
-    _failures = 0;
-    try {
-      await detector.initialize();
-      _ready = true;
-      _lastItemsAt = _now();
-    } on ModelLoadException catch (e) {
-      _ready = false;
-      _startupError = e.message;
-    } catch (e) {
-      debugPrint('The detector could not start: $e');
-      _ready = false;
-      _startupError = 'The detection model could not be started.';
-    }
+  /// Marks the provider as ready. YOLOView handles the actual model loading natively.
+  void start() {
+    _ready = true;
+    _lastItemsAt = _now();
     if (!_disposed) notifyListeners();
   }
 
-  /// The "Try again" button.
-  Future<void> retry() async {
-    _ready = false;
-    await start();
+  /// The "Try again" button logic.
+  void retry() {
+    start();
   }
 
-  /// Called for every camera frame (about 30 times a second).
-  /// Most are skipped: we only run when the detector is free, the minimum
-  /// interval has passed, and the scan is not frozen.
-  Future<void> onFrame(DetectorFrame frame) async {
-    if (!_ready || _busy || _frozen || _disposed) return;
+  /// Receives the translated YOLO detections directly from the ScannerScreen.
+  void updateDetections(List<Detection> rawDetections) {
+    if (!_ready || _frozen || _disposed) return;
 
-    final now = _now();
-    if (now.difference(_lastRun) < minInterval) return;
-    _lastRun = now;
+    final before = _detections.length;
 
-    _busy = true;
-    try {
-      final raw = await detector.detect(frame);
-      // The user may have frozen the scan while the detector was working.
-      if (_disposed || _frozen) return;
+    // Count every item that is at least partly visible on screen, even if
+    // the edge of the picture cuts it off.
+    final inView = [
+      for (final d in rawDetections)
+        if (_visibleShare(d.box) >= AppConstants.minVisibleShare) d,
+    ];
 
-      _failures = 0;
-      final before = _detections.length;
+    _detections = tracker.update(inView);
 
-      // Count every item that is at least partly visible on screen, even if
-      // the edge of the picture cuts it off.
-      final inView = [
-        for (final d in raw)
-          if (_visibleShare(d.box) >= AppConstants.minVisibleShare) d,
-      ];
-      _detections = tracker.update(inView);
+    if (_detections.isNotEmpty) _lastItemsAt = _now();
+    final added = _detections.length - before;
 
-      _detections = tracker.update(inView);
-      if (_detections.isNotEmpty) _lastItemsAt = _now();
-      final added = _detections.length - before;
-      _refreshGuidance();
-      notifyListeners();
-      if (added > 0) onItemsLocked?.call(added);
-    } catch (e) {
-      debugPrint('Detection failed: $e');
-      _failures++;
-      // Tell the screen the moment it becomes a real problem.
-      if (_failures == AppConstants.failuresBeforeError && !_disposed) {
-        notifyListeners();
-      }
-    } finally {
-      _busy = false;
-    }
+    _refreshGuidance();
+    notifyListeners();
+
+    if (added > 0) onItemsLocked?.call(added);
   }
 
   /// The screen sends what it measured from the camera picture.
@@ -227,19 +169,12 @@ class ScannerProvider extends ChangeNotifier {
     _detections = const [];
     _tips = const [];
     _lastItemsAt = _now();
-    // The fake detector makes up a brand-new scene so you can demo it.
-    // The real detector simply sees whatever is in front of the camera.
-    final d = detector;
-    if (d is DemoCapable) {
-      (d as DemoCapable).regenerate();
-    }
     notifyListeners();
   }
 
   @override
   void dispose() {
     _disposed = true;
-    detector.dispose();
     super.dispose();
   }
 }
