@@ -9,15 +9,16 @@ import 'core/app_health.dart';
 import 'core/app_routes.dart';
 import 'core/app_theme.dart';
 import 'providers/auth_provider.dart';
+import 'providers/avatar_provider.dart';
 import 'providers/history_provider.dart';
 import 'providers/settings_provider.dart';
+import 'screens/scan_screen.dart';
 import 'services/app_database.dart';
+import 'services/avatar_store.dart';
 import 'services/scan_repository.dart';
 import 'services/sqlite_scan_repository.dart';
 import 'services/supabase_service.dart';
 import 'widgets/friendly_error_view.dart';
-import 'providers/avatar_provider.dart';
-import 'services/avatar_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +28,7 @@ Future<void> main() async {
     debugPrint('Uncaught error: $error\n$stack');
     return true;
   };
+
   // In the released app, show a calm message instead of Flutter's grey box.
   if (kReleaseMode) {
     ErrorWidget.builder = (details) => const FriendlyErrorView();

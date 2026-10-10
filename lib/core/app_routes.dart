@@ -15,7 +15,7 @@ import '../screens/info/legal_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/onboarding/permission_screen.dart';
 import '../screens/onboarding/splash_screen.dart';
-import '../screens/scanner/scanner_screen.dart';
+import '../screens/scan_screen.dart';
 import '../screens/settings/account_details_screen.dart';
 import '../screens/settings/change_password_screen.dart';
 import '../screens/shell/main_shell.dart';
@@ -42,6 +42,7 @@ class AppRoutes {
   static const accountDetails = '/account-details';
   static const home = '/home';
   static const scanner = '/scanner';
+  static const scan = '/scan';
   static const scanResult = '/scan-result';
   static const history = '/history';
   static const historyDetail = '/history-detail';
@@ -69,9 +70,9 @@ class AppRoutes {
       case forgotPassword:
         screen = const ForgotPasswordScreen();
       case newPassword:
-        screen = const NewPasswordScreen(); // only after "forgot password"
+        screen = const NewPasswordScreen();
       case changePassword:
-        screen = const ChangePasswordScreen(); // from Settings, stays signed in
+        screen = const ChangePasswordScreen();
       case accountDetails:
         screen = const AccountDetailsScreen();
       case codeEntry:
@@ -82,7 +83,8 @@ class AppRoutes {
       case home:
         screen = const MainShell();
       case scanner:
-        screen = const ScannerScreen();
+      case scan:
+        screen = const ScanScreen();
       case historyDetail:
         final record = settings.arguments;
         screen = record is ScanRecord
