@@ -1,4 +1,4 @@
-// ignore_for_file: unused_shown_name, unused_import
+// ignore_for_file: unused_import, unused_shown_name
 
 import 'dart:io' show Platform, File, Directory;
 import 'dart:typed_data';
@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:ultralytics_yolo/ultralytics_yolo.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
@@ -52,7 +53,6 @@ class _ScannerViewState extends State<_ScannerView>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final ScanImageStore _imageStore = ScanImageStore();
 
-  // Ultralytics YOLO Controllers
   final _yoloController = YOLOViewController();
   final _yolo = YOLO(
     modelPath: 'assets/models/pesoscanV1.tflite',
@@ -65,6 +65,9 @@ class _ScannerViewState extends State<_ScannerView>
   bool _initializing = false;
   bool _capturing = false;
   bool _modelReady = false;
+
+  // State to hold the gallery image bytes so it displays on screen
+  Uint8List? _galleryBytes;
 
   late final AnimationController _scanLine;
 
@@ -113,12 +116,9 @@ class _ScannerViewState extends State<_ScannerView>
     _initializing = true;
 
     try {
-      // 1. Load the YOLO model natively
       await _yolo.loadModel();
       _modelReady = true;
-      _yoloController.setShowOverlays(
-        false,
-      ); // Hide generic overlays, use custom ones
+      _yoloController.setShowOverlays(false);
 
       if (mounted) {
         setState(() {
@@ -142,15 +142,80 @@ class _ScannerViewState extends State<_ScannerView>
   }
 
   Future<void> _toggleTorch() async {
-    // YOLOViewController lacks a direct torch toggle in this version.
-    // We update UI state, but may require a native camera patch for the flash.
-    if (mounted) {
-      setState(() => _torchOn = !_torchOn);
+    try {
+      await _yoloController.setTorchMode(!_torchOn);
+      if (mounted) setState(() => _torchOn = !_torchOn);
+    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Flash toggle may require native camera access.'),
-        ),
+        const SnackBar(content: Text('Flash is not available on this device.')),
       );
+    }
+  }
+
+  Future<void> _pickGalleryImage() async {
+    if (!_modelReady) return;
+
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (file == null || !mounted) return;
+
+    final scanner = context.read<ScannerProvider>();
+    final settings = context.read<SettingsProvider>();
+
+    try {
+      final bytes = await file.readAsBytes();
+
+      // Update state to render the gallery photo as the background
+      setState(() {
+        _galleryBytes = bytes;
+      });
+
+      await _yoloController.pause();
+
+      final result = await _yolo.predict(bytes);
+
+      final raw = (result as Map)['detections'] as List?;
+      final yoloResults =
+          raw?.whereType<Map>().map(YOLOResult.fromMap).toList() ?? [];
+
+      final mappedDetections = yoloResults.map((yolo) {
+        final box = yolo.normalizedBox;
+        final moneyType = yolo.className.startsWith('bill')
+            ? MoneyType.bill
+            : MoneyType.coin;
+        return Detection(
+          money: MoneyClass(
+            id: _getMoneyId(yolo.className), // Uses the new mapping function
+            valueCentavos: _parseCentavos(yolo.className),
+            type: moneyType,
+            design: yolo.className,
+          ),
+          confidence: yolo.confidence,
+          box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+        );
+      }).toList();
+
+      scanner.injectAndFreeze(mappedDetections);
+      FeedbackService.instance.captured(haptic: settings.hapticEnabled);
+
+      if (!mounted) return;
+      final outcome = await ScanResultSheet.show(context, scanner.detections);
+
+      if (!mounted) return;
+      switch (outcome.action) {
+        case ResultAction.save:
+          await _save(outcome.detections, file.path);
+          if (mounted) await _resumeLive();
+        case ResultAction.rescan:
+        case ResultAction.discard:
+          if (mounted) await _resumeLive();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Gallery scan failed: $e')));
+        await _resumeLive();
+      }
     }
   }
 
@@ -168,11 +233,9 @@ class _ScannerViewState extends State<_ScannerView>
       final frozen = scanner.freeze();
       FeedbackService.instance.captured(haptic: settings.hapticEnabled);
 
-      // Capture frame via YOLO controller
       final bytes = await _yoloController.captureFrame();
       await _yoloController.pause();
 
-      // Write captured bytes to a temporary image file so the save sheet can use it
       if (bytes != null) {
         final tempFile = File(
           '${Directory.systemTemp.path}/pesoscan_${DateTime.now().millisecondsSinceEpoch}.jpg',
@@ -267,26 +330,28 @@ class _ScannerViewState extends State<_ScannerView>
       await _yoloController.resume();
     } catch (_) {}
 
-    // Add this guard to ensure the widget still exists before using 'context'
     if (!mounted) return;
+
+    // Clear the gallery image to reveal the camera feed again
+    setState(() {
+      _galleryBytes = null;
+    });
 
     context.read<ScannerProvider>().resume();
   }
 
-  // Maps Ultralytics YOLOResult to your app's Detection class
   void _handleYoloResults(List<YOLOResult> yoloResults) {
     if (!mounted || !_modelReady) return;
 
     final detections = yoloResults.map((yolo) {
       final box = yolo.normalizedBox;
-      // You must ensure your MoneyClass logic matches the yolo.className
       final moneyType = yolo.className.startsWith('bill')
           ? MoneyType.bill
           : MoneyType.coin;
 
       return Detection(
         money: MoneyClass(
-          id: yolo.classIndex,
+          id: _getMoneyId(yolo.className), // Uses the new mapping function
           valueCentavos: _parseCentavos(yolo.className),
           type: moneyType,
           design: yolo.className,
@@ -296,9 +361,10 @@ class _ScannerViewState extends State<_ScannerView>
       );
     }).toList();
 
-    // Feed the translated detections directly into your provider
     context.read<ScannerProvider>().updateDetections(detections);
   }
+
+  // --- MAPPING FUNCTIONS ---
 
   int _parseCentavos(String className) {
     const values = <String, int>{
@@ -317,6 +383,37 @@ class _ScannerViewState extends State<_ScannerView>
     return values[className] ?? 0;
   }
 
+  int _getMoneyId(String className) {
+    // Maps the 11 YOLO strings to the 19 specific MoneyClass IDs in money_class.dart
+    switch (className) {
+      case 'coin_005':
+        return 1; // ₱0.05 NGC
+      case 'coin_025':
+        return 2; // ₱0.25 NGC
+      case 'coin_1':
+        return 4; // ₱1 NGC (Defaulting to NGC over BSP)
+      case 'coin_5':
+        return 7; // ₱5 NGC Nonagonal
+      case 'coin_10':
+        return 9; // ₱10 NGC (Mabini only)
+      case '20':
+        return 10; // ₱20 NGC Coin
+      case 'bill_50':
+        return 11; // ₱50 NGC Series
+      case 'bill_100':
+        return 12; // ₱100 NGC Series
+      case 'bill_200':
+        return 13; // ₱200 NGC Series
+      case 'bill_500':
+        return 14; // ₱500 NGC Series
+      case 'bill_1000':
+        return 19; // ₱1000 Polymer (Defaulting to newest)
+      default:
+        return 1; // Fallback to prevent crashes
+    }
+  }
+  // --- UI BUILDING ---
+
   Widget _buildPreview() {
     if (_cameraError != null) {
       return CameraErrorView(
@@ -330,6 +427,21 @@ class _ScannerViewState extends State<_ScannerView>
     if (!_modelReady) {
       return Center(
         child: CircularProgressIndicator(color: context.colors.gold),
+      );
+    }
+
+    // If an image was uploaded from the gallery, show it instead of the camera
+    if (_galleryBytes != null) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          if (!constraints.biggest.isEmpty) {
+            context.read<ScannerProvider>().visibleRegion = FrameMapper(
+              area: constraints.biggest,
+              frameAspect: 9 / 16,
+            ).visibleFrameRect;
+          }
+          return Image.memory(_galleryBytes!, fit: BoxFit.cover);
+        },
       );
     }
 
@@ -386,8 +498,32 @@ class _ScannerViewState extends State<_ScannerView>
                     builder: (context, scanner, _) {
                       Widget? card;
                       if (scanner.noItemsFound && _modelReady) {
-                        card = EmptyScanCard(
-                          onHelp: () => ScanGuideSheet.show(context),
+                        card = Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            EmptyScanCard(
+                              onHelp: () => ScanGuideSheet.show(context),
+                            ),
+                            Positioned(
+                              top: -8,
+                              right: -8,
+                              child: GestureDetector(
+                                onTap: scanner.dismissEmptyMessage,
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    color: Colors.black87,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  padding: const EdgeInsets.all(4),
+                                  child: const Icon(
+                                    Icons.close,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         );
                       } else if (scanner.count == 0 && _modelReady) {
                         card = const HintChip(
@@ -438,6 +574,22 @@ class _ScannerViewState extends State<_ScannerView>
                             ),
                           ],
                         ),
+                      ),
+                    ),
+                  ),
+
+                  Positioned(
+                    top: MediaQuery.paddingOf(context).top + 8,
+                    right: 16,
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.add_photo_alternate_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      onPressed: _pickGalleryImage,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black45,
                       ),
                     ),
                   ),
