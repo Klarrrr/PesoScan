@@ -9,22 +9,14 @@ import '../models/detection.dart';
 import '../services/detection_tracker.dart';
 import '../services/frame_analyzer.dart';
 
-/// Manages the state of the scanner screen, receiving detections from YOLOView.
-/// Keeps the steady result, plus the scanning tips and the "something is wrong" states.
 class ScannerProvider extends ChangeNotifier {
   final DetectionTracker tracker;
   final GuidanceTracker _guidance;
   final DateTime Function() _now;
 
-  /// Called when the number of confirmed items goes UP, with how many
-  /// were added. The screen uses it for the haptic and the chime.
   void Function(int added)? onItemsLocked;
 
-  /// Width / height of the upright camera picture (the screen sets it).
   double frameAspect = 9 / 16;
-
-  /// The part of the camera picture (0..1) that is visible on screen.
-  /// Only items inside it are counted, so what you see is what is counted.
   Rect visibleRegion = const Rect.fromLTWH(0, 0, 1, 1);
 
   ScannerProvider({
@@ -42,11 +34,13 @@ class ScannerProvider extends ChangeNotifier {
   bool _ready = false;
   bool _frozen = false;
   bool _disposed = false;
+  bool _dismissedNoItems = false;
 
   final String? _startupError = null;
   final int _failures = 0;
 
   late DateTime _lastItemsAt = _now();
+  DateTime _lastRun = DateTime.fromMillisecondsSinceEpoch(0);
 
   List<Detection> get detections => _detections;
   int get count => _detections.length;
@@ -56,53 +50,52 @@ class ScannerProvider extends ChangeNotifier {
   bool get isFrozen => _frozen;
   bool get hasLowConfidence => _detections.any((d) => d.isLowConfidence);
 
-  /// Light and shaking, as last measured (null until the first look).
   FrameSignals? get signals => _signals;
-
-  /// Active tips, most important first.
   List<GuidanceTip> get tips => _tips;
-
-  // ---- Problem states -------------------------------------------------
 
   String? get startupError => _startupError;
   bool get hasStartupError => _startupError != null;
   bool get processingFailed => _failures >= AppConstants.failuresBeforeError;
   bool get hasProblem => hasStartupError || processingFailed;
 
-  /// Scanning for a while and nothing was found.
+  // Wait 10 full seconds before showing the "No coins found" message
   bool get noItemsFound =>
       _ready &&
       !_frozen &&
       !processingFailed &&
+      !_dismissedNoItems &&
       _detections.isEmpty &&
-      _now().difference(_lastItemsAt) >= AppConstants.noItemsAfter;
+      _now().difference(_lastItemsAt) >= const Duration(seconds: 10);
 
-  // YOLOView integration no longer utilizes the mock/demo detector logic
   bool get isDemoMode => false;
   String? get demoReason => null;
 
-  // ---------------------------------------------------------------------
+  void dismissEmptyMessage() {
+    _dismissedNoItems = true;
+    notifyListeners();
+  }
 
-  /// Marks the provider as ready. YOLOView handles the actual model loading natively.
   void start() {
     _ready = true;
     _lastItemsAt = _now();
     if (!_disposed) notifyListeners();
   }
 
-  /// The "Try again" button logic.
   void retry() {
     start();
   }
 
-  /// Receives the translated YOLO detections directly from the ScannerScreen.
   void updateDetections(List<Detection> rawDetections) {
     if (!_ready || _frozen || _disposed) return;
 
+    // UI Frame Throttling: only redraw Flutter UI every 150ms
+    // This stops the extreme FPS lag by letting the camera stay smooth!
+    final now = _now();
+    if (now.difference(_lastRun) < const Duration(milliseconds: 150)) return;
+    _lastRun = now;
+
     final before = _detections.length;
 
-    // Count every item that is at least partly visible on screen, even if
-    // the edge of the picture cuts it off.
     final inView = [
       for (final d in rawDetections)
         if (_visibleShare(d.box) >= AppConstants.minVisibleShare) d,
@@ -110,7 +103,11 @@ class ScannerProvider extends ChangeNotifier {
 
     _detections = tracker.update(inView);
 
-    if (_detections.isNotEmpty) _lastItemsAt = _now();
+    if (_detections.isNotEmpty) {
+      _lastItemsAt = now;
+      _dismissedNoItems = false; // Reset the "X" button if new items appear
+    }
+
     final added = _detections.length - before;
 
     _refreshGuidance();
@@ -119,7 +116,13 @@ class ScannerProvider extends ChangeNotifier {
     if (added > 0) onItemsLocked?.call(added);
   }
 
-  /// The screen sends what it measured from the camera picture.
+  // Used by the Gallery Picker to force detections into the state
+  void injectAndFreeze(List<Detection> injectedDetections) {
+    _detections = injectedDetections;
+    _frozen = true;
+    notifyListeners();
+  }
+
   void updateSignals(FrameSignals signals) {
     if (_frozen || _disposed) return;
     _signals = signals;
@@ -127,7 +130,6 @@ class ScannerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// How much of [box] (0..1) lies inside the visible part of the picture.
   double _visibleShare(Rect box) {
     final area = box.width * box.height;
     if (area <= 0 || !box.overlaps(visibleRegion)) return 0;
@@ -149,20 +151,17 @@ class ScannerProvider extends ChangeNotifier {
     ];
   }
 
-  /// Stops updating and returns what was on screen at this moment.
   List<Detection> freeze() {
     _frozen = true;
     notifyListeners();
     return List.unmodifiable(_detections);
   }
 
-  /// Back to live scanning with a clean slate.
   void resume() {
     _frozen = false;
     reset();
   }
 
-  /// The Reset button: wipe the current count and start fresh.
   void reset() {
     tracker.reset();
     _guidance.reset();
