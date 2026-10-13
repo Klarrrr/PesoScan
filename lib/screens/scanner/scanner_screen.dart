@@ -1,4 +1,4 @@
-// ignore_for_file: unused_import, unused_shown_name
+// ignore_for_file: unused_shown_name, unused_import
 
 import 'dart:io' show Platform, File, Directory;
 import 'dart:typed_data';
@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:ultralytics_yolo/ultralytics_yolo.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
@@ -59,6 +60,9 @@ class _ScannerViewState extends State<_ScannerView>
     task: YOLOTask.obb,
   );
 
+  // 1. Text to Speech Controller
+  final FlutterTts _tts = FlutterTts();
+
   String? _cameraError;
   bool _permissionProblem = false;
   bool _torchOn = false;
@@ -66,15 +70,18 @@ class _ScannerViewState extends State<_ScannerView>
   bool _capturing = false;
   bool _modelReady = false;
 
-  // State to hold the gallery image bytes so it displays on screen
   Uint8List? _galleryBytes;
-
   late final AnimationController _scanLine;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Set up the voice assistant with a localized accent
+    _tts.setLanguage("en-PH");
+    _tts.setSpeechRate(0.5);
+
     _scanLine = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2600),
@@ -98,6 +105,7 @@ class _ScannerViewState extends State<_ScannerView>
     _scanLine.dispose();
     _yoloController.dispose();
     _yolo.dispose();
+    _tts.stop(); // Stop speaking if the user closes the scanner
     super.dispose();
   }
 
@@ -153,6 +161,29 @@ class _ScannerViewState extends State<_ScannerView>
     }
   }
 
+  // 2. Voice Assistant Speech Logic
+  // 2. Voice Assistant Speech Logic
+  Future<void> _speakTotal(int centavos) async {
+    final settings = context.read<SettingsProvider>();
+    if (!settings.audioEnabled || centavos == 0) return;
+
+    final pesos = centavos ~/ 100;
+    final cents = centavos % 100;
+
+    String text = "The total counted value is ";
+    if (pesos > 0) {
+      text += "$pesos peso${pesos == 1 ? '' : 's'}";
+    }
+    if (pesos > 0 && cents > 0) {
+      text += " and ";
+    }
+    if (cents > 0) {
+      text += "$cents centavo${cents == 1 ? '' : 's'}";
+    }
+    debugPrint("VOICE ASSISTANT SAYS: $text");
+    await _tts.speak(text);
+  }
+
   Future<void> _pickGalleryImage() async {
     if (!_modelReady) return;
 
@@ -165,7 +196,6 @@ class _ScannerViewState extends State<_ScannerView>
     try {
       final bytes = await file.readAsBytes();
 
-      // Update state to render the gallery photo as the background
       setState(() {
         _galleryBytes = bytes;
       });
@@ -185,7 +215,7 @@ class _ScannerViewState extends State<_ScannerView>
             : MoneyType.coin;
         return Detection(
           money: MoneyClass(
-            id: _getMoneyId(yolo.className), // Uses the new mapping function
+            id: _getMoneyId(yolo.className),
             valueCentavos: _parseCentavos(yolo.className),
             type: moneyType,
             design: yolo.className,
@@ -197,6 +227,9 @@ class _ScannerViewState extends State<_ScannerView>
 
       scanner.injectAndFreeze(mappedDetections);
       FeedbackService.instance.captured(haptic: settings.hapticEnabled);
+
+      // Call voice assistant here
+      _speakTotal(scanner.totalCentavos);
 
       if (!mounted) return;
       final outcome = await ScanResultSheet.show(context, scanner.detections);
@@ -230,8 +263,12 @@ class _ScannerViewState extends State<_ScannerView>
     String? tempPath;
 
     try {
+      final currentTotal = scanner.totalCentavos;
       final frozen = scanner.freeze();
       FeedbackService.instance.captured(haptic: settings.hapticEnabled);
+
+      // Call voice assistant here
+      _speakTotal(currentTotal);
 
       final bytes = await _yoloController.captureFrame();
       await _yoloController.pause();
@@ -332,7 +369,6 @@ class _ScannerViewState extends State<_ScannerView>
 
     if (!mounted) return;
 
-    // Clear the gallery image to reveal the camera feed again
     setState(() {
       _galleryBytes = null;
     });
@@ -351,7 +387,7 @@ class _ScannerViewState extends State<_ScannerView>
 
       return Detection(
         money: MoneyClass(
-          id: _getMoneyId(yolo.className), // Uses the new mapping function
+          id: _getMoneyId(yolo.className),
           valueCentavos: _parseCentavos(yolo.className),
           type: moneyType,
           design: yolo.className,
@@ -363,8 +399,6 @@ class _ScannerViewState extends State<_ScannerView>
 
     context.read<ScannerProvider>().updateDetections(detections);
   }
-
-  // --- MAPPING FUNCTIONS ---
 
   int _parseCentavos(String className) {
     const values = <String, int>{
@@ -384,35 +418,33 @@ class _ScannerViewState extends State<_ScannerView>
   }
 
   int _getMoneyId(String className) {
-    // Maps the 11 YOLO strings to the 19 specific MoneyClass IDs in money_class.dart
     switch (className) {
       case 'coin_005':
-        return 1; // ₱0.05 NGC
+        return 1;
       case 'coin_025':
-        return 2; // ₱0.25 NGC
+        return 2;
       case 'coin_1':
-        return 4; // ₱1 NGC (Defaulting to NGC over BSP)
+        return 4;
       case 'coin_5':
-        return 7; // ₱5 NGC Nonagonal
+        return 7;
       case 'coin_10':
-        return 9; // ₱10 NGC (Mabini only)
+        return 9;
       case '20':
-        return 10; // ₱20 NGC Coin
+        return 10;
       case 'bill_50':
-        return 11; // ₱50 NGC Series
+        return 11;
       case 'bill_100':
-        return 12; // ₱100 NGC Series
+        return 12;
       case 'bill_200':
-        return 13; // ₱200 NGC Series
+        return 13;
       case 'bill_500':
-        return 14; // ₱500 NGC Series
+        return 14;
       case 'bill_1000':
-        return 19; // ₱1000 Polymer (Defaulting to newest)
+        return 19;
       default:
-        return 1; // Fallback to prevent crashes
+        return 1;
     }
   }
-  // --- UI BUILDING ---
 
   Widget _buildPreview() {
     if (_cameraError != null) {
@@ -430,7 +462,6 @@ class _ScannerViewState extends State<_ScannerView>
       );
     }
 
-    // If an image was uploaded from the gallery, show it instead of the camera
     if (_galleryBytes != null) {
       return LayoutBuilder(
         builder: (context, constraints) {
