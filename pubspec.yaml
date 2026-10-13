@@ -54,6 +54,7 @@ dependencies:
 
   # ML & Detection Dependencies
   ultralytics_yolo: 0.6.15
+  flutter_tts: ^4.2.5
 
 dev_dependencies:
   flutter_test:
