@@ -379,23 +379,27 @@ class _ScannerViewState extends State<_ScannerView>
   void _handleYoloResults(List<YOLOResult> yoloResults) {
     if (!mounted || !_modelReady) return;
 
-    final detections = yoloResults.map((yolo) {
-      final box = yolo.normalizedBox;
-      final moneyType = yolo.className.startsWith('bill')
-          ? MoneyType.bill
-          : MoneyType.coin;
+    final detections = yoloResults
+        // IGNORE the 200 bill completely since it's out of scope
+        .where((yolo) => yolo.className != 'bill_200')
+        .map((yolo) {
+          final box = yolo.normalizedBox;
+          final moneyType = yolo.className.startsWith('bill')
+              ? MoneyType.bill
+              : MoneyType.coin;
 
-      return Detection(
-        money: MoneyClass(
-          id: _getMoneyId(yolo.className),
-          valueCentavos: _parseCentavos(yolo.className),
-          type: moneyType,
-          design: yolo.className,
-        ),
-        confidence: yolo.confidence,
-        box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
-      );
-    }).toList();
+          return Detection(
+            money: MoneyClass(
+              id: _getMoneyId(yolo.className),
+              valueCentavos: _parseCentavos(yolo.className),
+              type: moneyType,
+              design: yolo.className,
+            ),
+            confidence: yolo.confidence,
+            box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+          );
+        })
+        .toList();
 
     context.read<ScannerProvider>().updateDetections(detections);
   }
@@ -420,27 +424,32 @@ class _ScannerViewState extends State<_ScannerView>
   int _getMoneyId(String className) {
     switch (className) {
       case 'coin_005':
-        return 1;
+        return 1; // ID 1: ₱0.05 NGC
       case 'coin_025':
-        return 2;
+        return 2; // ID 2: ₱0.25 NGC
       case 'coin_1':
-        return 4;
+        return 4; // ID 4: ₱1 NGC
       case 'coin_5':
-        return 7;
+        return 7; // ID 7: ₱5 NGC Nonagonal
       case 'coin_10':
-        return 9;
+        return 9; // ID 9: ₱10 NGC
       case '20':
-        return 10;
+        return 10; // ID 10: ₱20 NGC Coin
+
+      // Map bills to the newest Polymer IDs (16-19)
       case 'bill_50':
-        return 11;
+        return 16; // ID 16: ₱50 Polymer
       case 'bill_100':
-        return 12;
-      case 'bill_200':
-        return 13;
+        return 17; // ID 17: ₱100 Polymer
       case 'bill_500':
-        return 14;
+        return 18; // ID 18: ₱500 Polymer
       case 'bill_1000':
-        return 19;
+        return 19; // ID 19: ₱1000 Polymer
+
+      // Fallback: Your catalog is missing the ₱200 bill!
+      // Mapping to 17 (100 pesos) temporarily to prevent crashes
+      // if YOLO accidentally scans a 200.
+
       default:
         return 1;
     }
