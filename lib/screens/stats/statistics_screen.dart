@@ -5,16 +5,37 @@ import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
 import '../../core/money.dart';
 import '../../core/scan_stats.dart';
+import '../../models/scan_record.dart';
 import '../../providers/history_provider.dart';
 import '../../widgets/screen_header.dart';
 
-/// Page 14 of the prototype.
+/// Page 14: Analytics, Model Accuracy/Confidence, and Denomination breakdown.
 class StatisticsScreen extends StatelessWidget {
   const StatisticsScreen({super.key});
 
+  double _computeAverageConfidence(List<ScanRecord> records) {
+    int totalDetections = 0;
+    double confidenceSum = 0.0;
+
+    for (final record in records) {
+      for (final detection in record.detections) {
+        confidenceSum += detection.confidence;
+        totalDetections++;
+      }
+    }
+
+    if (totalDetections == 0) return 0.0;
+    final average = confidenceSum / totalDetections;
+
+    // Normalize: if the model provided 0.0-1.0, convert to percentage (0-100)
+    return average <= 1.0 ? average * 100 : average;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final stats = computeStats(context.watch<HistoryProvider>().all);
+    final records = context.watch<HistoryProvider>().all;
+    final stats = computeStats(records);
+    final avgConfidence = _computeAverageConfidence(records);
 
     return Scaffold(
       body: SafeArea(
@@ -26,46 +47,94 @@ class StatisticsScreen extends StatelessWidget {
             if (stats.isEmpty)
               const _EmptyStats()
             else ...[
+              // Hero Card: Model Accuracy & Confidence
+              _ConfidenceCard(averageConfidence: avgConfidence),
+              const SizedBox(height: 12),
+
+              // Side-by-Side: Items Detected and Scan Sessions
               Row(
                 children: [
-                  Expanded(
-                    child: _StatCard(
-                      label: 'TOTAL SCANNED',
-                      value: formatPeso(stats.totalCentavos),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
                   Expanded(
                     child: _StatCard(
                       label: 'ITEMS DETECTED',
                       value: '${stats.items}',
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
+                  const SizedBox(width: 12),
                   Expanded(
                     child: _StatCard(
                       label: 'SCAN SESSIONS',
                       value: '${stats.sessions}',
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _StatCard(
-                      label: 'AVG PER SESSION',
-                      value: formatPeso(stats.averageCentavos),
-                    ),
-                  ),
                 ],
               ),
               const SizedBox(height: 16),
+
+              // Denomination Frequency Breakdown
               _FrequencyCard(rows: stats.byDenomination),
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ConfidenceCard extends StatelessWidget {
+  final double averageConfidence;
+  const _ConfidenceCard({required this.averageConfidence});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final fraction = (averageConfidence / 100).clamp(0.0, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'MODEL CONFIDENCE',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+              Icon(Icons.verified_rounded, size: 20, color: c.gold),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                averageConfidence == 0
+                    ? '--'
+                    : '${averageConfidence.toStringAsFixed(1)}%',
+                style: AppText.mono(size: 34, color: c.gold),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'average detection score',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: c.textMuted,
+                  fontFamily: AppFonts.body,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _Bar(fraction: fraction == 0 ? 0.03 : fraction),
+        ],
       ),
     );
   }
@@ -111,7 +180,7 @@ class _FrequencyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final maxCount =
-        rows.first.count; // rows are sorted, so the first is the most
+        rows.first.count; // rows are sorted, so the first is the highest
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -166,7 +235,7 @@ class _FrequencyCard extends StatelessWidget {
   }
 }
 
-/// A gold bar that grows to its length when the screen opens.
+/// A gold bar that animates smoothly to its width on render.
 class _Bar extends StatelessWidget {
   final double fraction; // 0..1
   const _Bar({required this.fraction});
