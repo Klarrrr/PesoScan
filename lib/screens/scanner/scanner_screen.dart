@@ -263,26 +263,61 @@ class _ScannerViewState extends State<_ScannerView>
     String? tempPath;
 
     try {
-      final currentTotal = scanner.totalCentavos;
-      final frozen = scanner.freeze();
-      FeedbackService.instance.captured(haptic: settings.hapticEnabled);
-
-      // Call voice assistant here
-      _speakTotal(currentTotal);
-
+      // 1. Take the photo and pause the camera
       final bytes = await _yoloController.captureFrame();
       await _yoloController.pause();
 
+      // 2. Fallback to live detections just in case the double-check fails
+      List<Detection> finalDetections = scanner.freeze();
+
       if (bytes != null) {
+        // Save the temporary image to the phone
         final tempFile = File(
           '${Directory.systemTemp.path}/pesoscan_${DateTime.now().millisecondsSinceEpoch}.jpg',
         );
         await tempFile.writeAsBytes(bytes);
         tempPath = tempFile.path;
+
+        // 3. DOUBLE CHECK: Run YOLO prediction on the exact photo we just took
+        try {
+          final result = await _yolo.predict(bytes);
+          final raw = (result as Map)['detections'] as List?;
+          final yoloResults =
+              raw?.whereType<Map>().map(YOLOResult.fromMap).toList() ?? [];
+
+          finalDetections = yoloResults
+              .where((yolo) => yolo.className != 'bill_200') // Drop 200 bills
+              .map((yolo) {
+                final box = yolo.normalizedBox;
+                final moneyType = yolo.className.startsWith('bill')
+                    ? MoneyType.bill
+                    : MoneyType.coin;
+                return Detection(
+                  money: MoneyClass(
+                    id: _getMoneyId(yolo.className),
+                    valueCentavos: _parseCentavos(yolo.className),
+                    type: moneyType,
+                    design: yolo.className,
+                  ),
+                  confidence: yolo.confidence,
+                  box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+                );
+              })
+              .toList();
+
+          // Inject the double-checked results into the state so the UI updates
+          scanner.injectAndFreeze(finalDetections);
+        } catch (e) {
+          debugPrint('Double check failed, using live detections: $e');
+        }
       }
 
+      // 4. Trigger haptic vibration and voice assistant using the double-checked total!
+      FeedbackService.instance.captured(haptic: settings.hapticEnabled);
+      _speakTotal(scanner.totalCentavos);
+
       if (!mounted) return;
-      final outcome = await ScanResultSheet.show(context, frozen);
+      final outcome = await ScanResultSheet.show(context, finalDetections);
 
       if (!mounted) return;
       switch (outcome.action) {
