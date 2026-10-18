@@ -126,9 +126,13 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final c = context.colors;
 
+    // Check if the user came from the Settings tab
+    final bool cameFromSettings = Navigator.canPop(context);
+
     return AuthScaffold(
       title: 'Welcome Back',
       subtitle: 'Log in to continue scanning.',
+      showBack: cameFromSettings,
       children: [
         if (_error != null) ...[
           ErrorBanner(message: _error!),
@@ -218,22 +222,24 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         ),
 
-        // --- NEW: Sign in as a guest button ---
-        const SizedBox(height: 8),
-        Center(
-          child: TextButton(
-            onPressed: _loading ? null : () => _handleGuestLogin(context),
-            child: Text(
-              'Sign in as a guest',
-              style: TextStyle(
-                color: c.textMuted,
-                decoration: TextDecoration.underline,
-                decorationColor: c.textMuted,
+        // --- MODIFIED: Only show Guest button if they are NOT coming from Settings ---
+        if (!cameFromSettings) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: _loading ? null : () => _handleGuestLogin(context),
+              child: Text(
+                'Sign in as a guest',
+                style: TextStyle(
+                  color: c.textMuted,
+                  decoration: TextDecoration.underline,
+                  decorationColor: c.textMuted,
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
+          const SizedBox(height: 16),
+        ],
       ],
     );
   }
