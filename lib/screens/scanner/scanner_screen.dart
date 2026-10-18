@@ -13,23 +13,22 @@ import 'package:flutter_tts/flutter_tts.dart';
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
 import '../../core/constants.dart';
+import '../../core/money.dart';
 import '../../models/detection.dart';
 import '../../models/money_class.dart';
+import '../../models/scan_record.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/history_provider.dart';
 import '../../providers/scanner_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/feedback_service.dart';
 import '../../services/permission_service.dart';
-import '../../services/scan_image_store.dart';
-import '../../services/scan_saver.dart';
-import '../../widgets/confirm_dialog.dart';
 import 'detection_overlay.dart';
 import 'guidance_widgets.dart';
 import 'problem_widgets.dart';
-import 'scan_result_sheet.dart';
 import 'scanner_widgets.dart';
 import '../../core/frame_mapper.dart';
+import 'scan_result_sheet.dart'; // We will update this file next!
 
 class ScannerScreen extends StatelessWidget {
   const ScannerScreen({super.key});
@@ -52,15 +51,11 @@ class _ScannerView extends StatefulWidget {
 
 class _ScannerViewState extends State<_ScannerView>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  final ScanImageStore _imageStore = ScanImageStore();
-
   final _yoloController = YOLOViewController();
   final _yolo = YOLO(
     modelPath: 'assets/models/pesoscanV1.tflite',
     task: YOLOTask.obb,
   );
-
-  // 1. Text to Speech Controller
   final FlutterTts _tts = FlutterTts();
 
   String? _cameraError;
@@ -77,8 +72,6 @@ class _ScannerViewState extends State<_ScannerView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-
-    // Set up the voice assistant with a localized accent
     _tts.setLanguage("en-PH");
     _tts.setSpeechRate(0.5);
 
@@ -88,7 +81,9 @@ class _ScannerViewState extends State<_ScannerView>
     )..repeat(reverse: true);
 
     context.read<ScannerProvider>().onItemsLocked = (_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       final settings = context.read<SettingsProvider>();
       FeedbackService.instance.itemLocked(
         haptic: settings.hapticEnabled,
@@ -105,7 +100,7 @@ class _ScannerViewState extends State<_ScannerView>
     _scanLine.dispose();
     _yoloController.dispose();
     _yolo.dispose();
-    _tts.stop(); // Stop speaking if the user closes the scanner
+    _tts.stop();
     super.dispose();
   }
 
@@ -120,14 +115,14 @@ class _ScannerViewState extends State<_ScannerView>
   }
 
   Future<void> _initScanner() async {
-    if (_initializing) return;
+    if (_initializing) {
+      return;
+    }
     _initializing = true;
-
     try {
       await _yolo.loadModel();
       _modelReady = true;
       _yoloController.setShowOverlays(false);
-
       if (mounted) {
         setState(() {
           _cameraError = null;
@@ -142,7 +137,9 @@ class _ScannerViewState extends State<_ScannerView>
   }
 
   void _fail(String message, {bool permission = false}) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _cameraError = message;
       _permissionProblem = permission;
@@ -152,24 +149,22 @@ class _ScannerViewState extends State<_ScannerView>
   Future<void> _toggleTorch() async {
     try {
       await _yoloController.setTorchMode(!_torchOn);
-      if (mounted) setState(() => _torchOn = !_torchOn);
+      if (mounted) {
+        setState(() => _torchOn = !_torchOn);
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Flash is not available on this device.')),
-      );
+      // Print the error to the console instead of leaving the catch block empty
+      debugPrint('Torch error: $e');
     }
   }
 
-  // 2. Voice Assistant Speech Logic
-  // 2. Voice Assistant Speech Logic
   Future<void> _speakTotal(int centavos) async {
     final settings = context.read<SettingsProvider>();
-    if (!settings.audioEnabled || centavos == 0) return;
-
+    if (!settings.audioEnabled || centavos == 0) {
+      return;
+    }
     final pesos = centavos ~/ 100;
     final cents = centavos % 100;
-
     String text = "The total counted value is ";
     if (pesos > 0) {
       text += "$pesos peso${pesos == 1 ? '' : 's'}";
@@ -180,73 +175,68 @@ class _ScannerViewState extends State<_ScannerView>
     if (cents > 0) {
       text += "$cents centavo${cents == 1 ? '' : 's'}";
     }
-    debugPrint("VOICE ASSISTANT SAYS: $text");
     await _tts.speak(text);
   }
 
   Future<void> _pickGalleryImage() async {
-    if (!_modelReady) return;
-
+    if (!_modelReady) {
+      return;
+    }
     final file = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (file == null || !mounted) return;
+    if (file == null || !mounted) {
+      return;
+    }
 
     final scanner = context.read<ScannerProvider>();
     final settings = context.read<SettingsProvider>();
 
     try {
       final bytes = await file.readAsBytes();
-
-      setState(() {
-        _galleryBytes = bytes;
-      });
-
+      setState(() => _galleryBytes = bytes);
       await _yoloController.pause();
 
       final result = await _yolo.predict(bytes);
-
       final raw = (result as Map)['detections'] as List?;
       final yoloResults =
           raw?.whereType<Map>().map(YOLOResult.fromMap).toList() ?? [];
 
-      final mappedDetections = yoloResults.map((yolo) {
-        final box = yolo.normalizedBox;
-        final moneyType = yolo.className.startsWith('bill')
-            ? MoneyType.bill
-            : MoneyType.coin;
-        return Detection(
-          money: MoneyClass(
-            id: _getMoneyId(yolo.className),
-            valueCentavos: _parseCentavos(yolo.className),
-            type: moneyType,
-            design: yolo.className,
-          ),
-          confidence: yolo.confidence,
-          box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
-        );
-      }).toList();
+      final mappedDetections = yoloResults
+          .where((yolo) => yolo.className != 'bill_200')
+          .map((yolo) {
+            final box = yolo.normalizedBox;
+            final moneyType = yolo.className.startsWith('bill')
+                ? MoneyType.bill
+                : MoneyType.coin;
+            return Detection(
+              money: MoneyClass(
+                id: _getMoneyId(yolo.className),
+                valueCentavos: _parseCentavos(yolo.className),
+                type: moneyType,
+                design: yolo.className,
+              ),
+              confidence: yolo.confidence,
+              box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+            );
+          })
+          .toList();
 
       scanner.injectAndFreeze(mappedDetections);
       FeedbackService.instance.captured(haptic: settings.hapticEnabled);
-
-      // Call voice assistant here
       _speakTotal(scanner.totalCentavos);
 
-      if (!mounted) return;
-      final outcome = await ScanResultSheet.show(context, scanner.detections);
-
-      if (!mounted) return;
-      switch (outcome.action) {
-        case ResultAction.save:
-          await _save(outcome.detections, file.path);
-          if (mounted) await _resumeLive();
-        case ResultAction.rescan:
-        case ResultAction.discard:
-          if (mounted) await _resumeLive();
+      if (!mounted) {
+        return;
       }
+
+      // Pass the file.path into the sheet
+      final outcome = await ScanResultSheet.show(
+        context,
+        scanner.detections,
+        file.path,
+      );
+      await _handleSheetOutcome(outcome, file.path, scanner);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Gallery scan failed: $e')));
         await _resumeLive();
       }
     }
@@ -263,22 +253,17 @@ class _ScannerViewState extends State<_ScannerView>
     String? tempPath;
 
     try {
-      // 1. Take the photo and pause the camera
       final bytes = await _yoloController.captureFrame();
       await _yoloController.pause();
-
-      // 2. Fallback to live detections just in case the double-check fails
       List<Detection> finalDetections = scanner.freeze();
 
       if (bytes != null) {
-        // Save the temporary image to the phone
         final tempFile = File(
           '${Directory.systemTemp.path}/pesoscan_${DateTime.now().millisecondsSinceEpoch}.jpg',
         );
         await tempFile.writeAsBytes(bytes);
         tempPath = tempFile.path;
 
-        // 3. DOUBLE CHECK: Run YOLO prediction on the exact photo we just took
         try {
           final result = await _yolo.predict(bytes);
           final raw = (result as Map)['detections'] as List?;
@@ -286,7 +271,7 @@ class _ScannerViewState extends State<_ScannerView>
               raw?.whereType<Map>().map(YOLOResult.fromMap).toList() ?? [];
 
           finalDetections = yoloResults
-              .where((yolo) => yolo.className != 'bill_200') // Drop 200 bills
+              .where((yolo) => yolo.className != 'bill_200')
               .map((yolo) {
                 final box = yolo.normalizedBox;
                 final moneyType = yolo.className.startsWith('bill')
@@ -305,124 +290,126 @@ class _ScannerViewState extends State<_ScannerView>
               })
               .toList();
 
-          // Inject the double-checked results into the state so the UI updates
           scanner.injectAndFreeze(finalDetections);
         } catch (e) {
-          debugPrint('Double check failed, using live detections: $e');
+          debugPrint('Double check prediction failed: $e');
         }
       }
 
-      // 4. Trigger haptic vibration and voice assistant using the double-checked total!
       FeedbackService.instance.captured(haptic: settings.hapticEnabled);
       _speakTotal(scanner.totalCentavos);
 
-      if (!mounted) return;
-      final outcome = await ScanResultSheet.show(context, finalDetections);
-
-      if (!mounted) return;
-      switch (outcome.action) {
-        case ResultAction.save:
-          await _save(outcome.detections, tempPath);
-          if (mounted) await _resumeLive();
-        case ResultAction.rescan:
-          if (tempPath != null) await _imageStore.delete(tempPath);
-          if (mounted) await _resumeLive();
-        case ResultAction.discard:
-          if (tempPath != null) await _imageStore.delete(tempPath);
-          if (mounted) Navigator.pop(context);
+      if (!mounted) {
+        return;
       }
+
+      // Pass the tempPath into the sheet
+      final outcome = await ScanResultSheet.show(
+        context,
+        finalDetections,
+        tempPath,
+      );
+      await _handleSheetOutcome(outcome, tempPath, scanner);
     } finally {
       _capturing = false;
     }
   }
 
-  Future<void> _save(List<Detection> detections, String? tempPath) async {
-    final saver = ScanSaver(add: context.read<HistoryProvider>().add);
-    final userId = context.read<AuthProvider>().userId;
-    final settings = context.read<SettingsProvider>();
-    final messenger = ScaffoldMessenger.of(context);
-
-    final pending = await saver.prepare(tempPath);
-
-    while (true) {
-      final outcome = await saver.commit(
-        pending,
-        detections: detections,
-        userId: userId,
-      );
-
-      switch (outcome) {
-        case SaveOutcome.saved:
-        case SaveOutcome.savedWithoutPhoto:
-          FeedbackService.instance.saved(
-            haptic: settings.hapticEnabled,
-            audio: settings.audioEnabled,
-          );
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text(
-                outcome == SaveOutcome.saved
-                    ? 'Saved to history.'
-                    : 'Saved to history (without a photo).',
-              ),
-            ),
-          );
-          return;
-        case SaveOutcome.storageFull:
-          if (!mounted) {
-            await saver.abandon(pending);
-            return;
-          }
-          final tryAgain = await ConfirmDialog.show(
-            context,
-            icon: Icons.sd_storage_outlined,
-            title: 'Storage space is full',
-            message: 'Free up some space, then tap Try again.',
-            confirmLabel: 'Try again',
-            cancelLabel: 'Discard scan',
-          );
-          if (!tryAgain) {
-            await saver.abandon(pending);
-            return;
-          }
-        case SaveOutcome.failed:
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('Could not save the scan. Please try again.'),
-            ),
-          );
-          await saver.abandon(pending);
-          return;
-      }
+  Future<void> _handleSheetOutcome(
+    SheetOutcome outcome,
+    String? tempPath,
+    ScannerProvider scanner,
+  ) async {
+    if (!mounted) {
+      return;
     }
+
+    if (outcome.action == ResultAction.saveSession) {
+      await _saveSessionToHistory(scanner);
+    } else if (outcome.action == ResultAction.discard) {
+      if (tempPath != null && !outcome.wasAdded) {
+        try {
+          await File(tempPath).delete();
+        } catch (e) {
+          debugPrint('Delete error: $e');
+        }
+      }
+
+      scanner.resetRunningTotal();
+
+      // --- FIX: Check if the screen is still active after deleting the file ---
+      if (!mounted) {
+        return;
+      }
+      Navigator.pop(context);
+    } else {
+      if (tempPath != null && !outcome.wasAdded) {
+        try {
+          await File(tempPath).delete();
+        } catch (e) {
+          debugPrint('Delete error: $e');
+        }
+      }
+      await _resumeLive();
+    }
+  }
+
+  Future<void> _saveSessionToHistory(ScannerProvider scanner) async {
+    final history = context.read<HistoryProvider>();
+    final auth = context.read<AuthProvider>();
+    final settings = context.read<SettingsProvider>();
+
+    if (scanner.sessionFrames.isEmpty) {
+      await _resumeLive();
+      return;
+    }
+
+    final record = ScanRecord(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      createdAt: DateTime.now(),
+      userId: auth.userId,
+      frames: List.from(scanner.sessionFrames),
+    );
+
+    await history.add(record);
+    FeedbackService.instance.saved(
+      haptic: settings.hapticEnabled,
+      audio: settings.audioEnabled,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Session saved to history.')),
+      );
+    }
+
+    scanner.resetRunningTotal();
+    await _resumeLive();
   }
 
   Future<void> _resumeLive() async {
     try {
       await _yoloController.resume();
     } catch (_) {}
-
-    if (!mounted) return;
-
-    setState(() {
-      _galleryBytes = null;
-    });
-
+    if (!mounted) {
+      return;
+    }
+    setState(() => _galleryBytes = null);
     context.read<ScannerProvider>().resume();
   }
 
   void _handleYoloResults(List<YOLOResult> yoloResults) {
-    if (!mounted || !_modelReady) return;
+    if (!mounted || !_modelReady) {
+      return;
+    }
 
     final detections = yoloResults
-        // IGNORE the 200 bill completely since it's out of scope
         .where((yolo) => yolo.className != 'bill_200')
         .map((yolo) {
           final box = yolo.normalizedBox;
           final moneyType = yolo.className.startsWith('bill')
               ? MoneyType.bill
               : MoneyType.coin;
-
           return Detection(
             money: MoneyClass(
               id: _getMoneyId(yolo.className),
@@ -443,7 +430,6 @@ class _ScannerViewState extends State<_ScannerView>
     const values = <String, int>{
       'bill_100': 10000,
       'bill_1000': 100000,
-      'bill_200': 20000,
       'bill_50': 5000,
       'bill_500': 50000,
       'coin_005': 5,
@@ -459,32 +445,25 @@ class _ScannerViewState extends State<_ScannerView>
   int _getMoneyId(String className) {
     switch (className) {
       case 'coin_005':
-        return 1; // ID 1: ₱0.05 NGC
+        return 1;
       case 'coin_025':
-        return 2; // ID 2: ₱0.25 NGC
+        return 2;
       case 'coin_1':
-        return 4; // ID 4: ₱1 NGC
+        return 4;
       case 'coin_5':
-        return 7; // ID 7: ₱5 NGC Nonagonal
+        return 7;
       case 'coin_10':
-        return 9; // ID 9: ₱10 NGC
+        return 9;
       case '20':
-        return 10; // ID 10: ₱20 NGC Coin
-
-      // Map bills to the newest Polymer IDs (16-19)
+        return 10;
       case 'bill_50':
-        return 16; // ID 16: ₱50 Polymer
+        return 16;
       case 'bill_100':
-        return 17; // ID 17: ₱100 Polymer
+        return 17;
       case 'bill_500':
-        return 18; // ID 18: ₱500 Polymer
+        return 18;
       case 'bill_1000':
-        return 19; // ID 19: ₱1000 Polymer
-
-      // Fallback: Your catalog is missing the ₱200 bill!
-      // Mapping to 17 (100 pesos) temporarily to prevent crashes
-      // if YOLO accidentally scans a 200.
-
+        return 19;
       default:
         return 1;
     }
@@ -499,13 +478,11 @@ class _ScannerViewState extends State<_ScannerView>
         onOpenSettings: PermissionService.openSettings,
       );
     }
-
     if (!_modelReady) {
       return Center(
         child: CircularProgressIndicator(color: context.colors.gold),
       );
     }
-
     if (_galleryBytes != null) {
       return LayoutBuilder(
         builder: (context, constraints) {
@@ -528,7 +505,6 @@ class _ScannerViewState extends State<_ScannerView>
             frameAspect: 9 / 16,
           ).visibleFrameRect;
         }
-
         return YOLOView(
           modelPath: 'assets/models/pesoscanV1.tflite',
           task: YOLOTask.obb,
@@ -557,7 +533,6 @@ class _ScannerViewState extends State<_ScannerView>
                 children: [
                   _buildPreview(),
                   const GridOverlay(),
-
                   Consumer<ScannerProvider>(
                     builder: (context, scanner, _) => DetectionOverlay(
                       detections: scanner.detections,
@@ -671,6 +646,8 @@ class _ScannerViewState extends State<_ScannerView>
                 ],
               ),
             ),
+
+            // --- RESTORED: Your original bottom layout ---
             Consumer<ScannerProvider>(
               builder: (context, scanner, _) => TotalPanel(
                 totalCentavos: scanner.totalCentavos,

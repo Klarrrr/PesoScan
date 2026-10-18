@@ -1,67 +1,118 @@
 import 'dart:convert';
 
-// "as math" avoids a name clash: our getter below is also called totalCentavos.
 import '../core/scan_math.dart' as math;
 import 'detection.dart';
 
-/// One saved scan, exactly what the History screen will show.
+/// Represents a single photo and its specific detections within a multi-frame session.
+class ScanFrame {
+  final String imagePath;
+  final List<Detection> detections;
+
+  ScanFrame({required this.imagePath, required this.detections});
+
+  int get frameTotalCentavos => math.totalCentavos(detections);
+  int get itemCount => detections.length;
+
+  Map<String, dynamic> toJson() => {
+    'imagePath': imagePath,
+    'detections': detections.map((d) => d.toJson()).toList(),
+  };
+
+  factory ScanFrame.fromJson(Map<String, dynamic> json) => ScanFrame(
+    imagePath: json['imagePath'] as String,
+    detections: (json['detections'] as List)
+        .map((e) => Detection.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList(),
+  );
+}
+
+/// One saved history record, which now contains MULTIPLE frames (photos).
 class ScanRecord {
   final String id;
   final DateTime createdAt;
-
-  /// Path of the frozen photo saved on the phone.
-  final String imagePath;
-
-  /// Which account made the scan (history is per user).
   final String? userId;
-
-  final List<Detection> detections;
+  final List<ScanFrame> frames;
 
   const ScanRecord({
     required this.id,
     required this.createdAt,
-    required this.imagePath,
-    required this.detections,
+    required this.frames,
     this.userId,
   });
 
-  int get totalCentavos => math.totalCentavos(detections);
-  int get itemCount => detections.length;
+  // The grand total is the sum of all individual frames
+  int get totalCentavos =>
+      frames.fold(0, (sum, f) => sum + f.frameTotalCentavos);
+  int get itemCount => frames.fold(0, (sum, f) => sum + f.itemCount);
 
-  /// A copy with some fields changed (used to remove a photo but keep the scan).
+  // Return the first image to use as the thumbnail in the History List screen
+  String get imagePath => frames.isNotEmpty ? frames.first.imagePath : '';
+
+  // --- FIX 1: Backward compatibility for scan_search and scan_stats ---
+  // This automatically combines all items from all frames into one flat list.
+  List<Detection> get detections => frames.expand((f) => f.detections).toList();
+
+  // --- FIX 2: Re-added copyWith for history_provider ---
+  // HistoryProvider uses this to remove photos (clear cache) by passing imagePath: ''
   ScanRecord copyWith({String? imagePath, List<Detection>? detections}) {
+    List<ScanFrame> newFrames = List.from(frames);
+
+    // If history_provider is clearing the photo cache, remove the image path from all frames
+    if (imagePath != null) {
+      newFrames = newFrames
+          .map((f) => ScanFrame(imagePath: imagePath, detections: f.detections))
+          .toList();
+    }
+
     return ScanRecord(
       id: id,
       userId: userId,
       createdAt: createdAt,
-      imagePath: imagePath ?? this.imagePath,
-      detections: detections ?? this.detections,
+      frames: newFrames,
     );
   }
 
-  /// Row for the SQLite table (Part 13).
-  /// total_centavos and item_count are stored separately on purpose:
-  /// the Statistics screen can then add them up with one fast SQL query
-  /// instead of decoding every scan's JSON.
   Map<String, Object?> toMap() => {
     'id': id,
     'user_id': userId,
     'created_at': createdAt.millisecondsSinceEpoch,
-    'image_path': imagePath,
     'total_centavos': totalCentavos,
     'item_count': itemCount,
-    'detections_json': jsonEncode(detections.map((d) => d.toJson()).toList()),
+    'image_path':
+        imagePath, // Keep for backward compatibility with the SQL table
+    'frames_json': jsonEncode(frames.map((f) => f.toJson()).toList()),
   };
 
   factory ScanRecord.fromMap(Map<String, Object?> map) {
-    final list = jsonDecode(map['detections_json'] as String) as List;
+    // If it's an old single-image record (before this update), this handles it gracefully
+    if (map['frames_json'] == null) {
+      final list = jsonDecode(map['detections_json'] as String) as List;
+      final detections = list
+          .map((e) => Detection.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      return ScanRecord(
+        id: map['id'] as String,
+        userId: map['user_id'] as String?,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+          map['created_at'] as int,
+        ),
+        frames: [
+          ScanFrame(
+            imagePath: map['image_path'] as String,
+            detections: detections,
+          ),
+        ],
+      );
+    }
+
+    // Load new multi-frame records
+    final list = jsonDecode(map['frames_json'] as String) as List;
     return ScanRecord(
       id: map['id'] as String,
       userId: map['user_id'] as String?,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
-      imagePath: map['image_path'] as String,
-      detections: list
-          .map((e) => Detection.fromJson(Map<String, dynamic>.from(e as Map)))
+      frames: list
+          .map((e) => ScanFrame.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
     );
   }

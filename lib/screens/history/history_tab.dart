@@ -298,7 +298,10 @@ class _HistoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final n = record.itemCount;
-    final groups = countByClass(record.detections).entries.toList();
+
+    // --- MODIFIED: Gather all detections from all frames in the session ---
+    final allDetections = record.frames.expand((f) => f.detections).toList();
+    final groups = countByClass(allDetections).entries.toList();
 
     Widget pill(String label) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -464,7 +467,7 @@ class _Thumbnail extends StatelessWidget {
             : Image.file(
                 File(path),
                 fit: BoxFit.cover,
-                cacheWidth: 240, // decode small: the card shows 78 pixels
+                cacheWidth: 240,
                 errorBuilder: (context, error, stack) => fallback,
               ),
       ),

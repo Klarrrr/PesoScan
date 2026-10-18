@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
@@ -6,45 +7,56 @@ import '../../core/money.dart';
 import '../../core/scan_math.dart';
 import '../../models/detection.dart';
 import '../../models/money_class.dart';
+import '../../providers/scanner_provider.dart';
 import '../../widgets/confidence_chip.dart';
 import '../../widgets/gold_button.dart';
 import 'class_picker_sheet.dart';
 import 'verify_sheet.dart';
 
-enum ResultAction { save, rescan, discard }
+// --- ADDED: discard is now its own distinct action ---
+enum ResultAction { saveSession, resume, discard }
 
-/// What the user decided, plus the (possibly corrected) list of items.
-class ScanResultOutcome {
+class SheetOutcome {
   final ResultAction action;
   final List<Detection> detections;
-  const ScanResultOutcome(this.action, this.detections);
+  final bool wasAdded;
+  const SheetOutcome(this.action, this.detections, this.wasAdded);
 }
 
 class _Group {
   final MoneyClass money;
-  final List<int> indexes; // positions in the item list
+  final List<int> indexes;
   const _Group(this.money, this.indexes);
 }
 
-/// Page 9 of the prototype: the bottom sheet shown after capturing.
 class ScanResultSheet extends StatefulWidget {
   final List<Detection> detections;
-  const ScanResultSheet({super.key, required this.detections});
+  final String? tempPath;
 
-  /// Shows the sheet and waits for a choice. It cannot be swiped away.
-  static Future<ScanResultOutcome> show(
+  const ScanResultSheet({super.key, required this.detections, this.tempPath});
+
+  static Future<SheetOutcome> show(
     BuildContext context,
     List<Detection> detections,
+    String? tempPath,
   ) async {
-    final result = await showModalBottomSheet<ScanResultOutcome>(
+    final scanner = context.read<ScannerProvider>();
+
+    final result = await showModalBottomSheet<SheetOutcome>(
       context: context,
       isScrollControlled: true,
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
-      builder: (_) => ScanResultSheet(detections: detections),
+      builder: (_) => ChangeNotifierProvider.value(
+        value: scanner,
+        child: Theme(
+          data: AppTheme.dark,
+          child: ScanResultSheet(detections: detections, tempPath: tempPath),
+        ),
+      ),
     );
-    return result ?? ScanResultOutcome(ResultAction.discard, detections);
+    return result ?? SheetOutcome(ResultAction.resume, detections, false);
   }
 
   @override
@@ -52,10 +64,10 @@ class ScanResultSheet extends StatefulWidget {
 }
 
 class _ScanResultSheetState extends State<ScanResultSheet> {
-  // The working copy: the user may correct it before saving.
   late final ValueNotifier<List<Detection>> _items = ValueNotifier(
     List.of(widget.detections),
   );
+  bool _wasAdded = false;
 
   @override
   void dispose() {
@@ -74,7 +86,9 @@ class _ScanResultSheetState extends State<ScanResultSheet> {
       context,
       current: _items.value[i].money,
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted) {
+      return;
+    }
     final list = List.of(_items.value);
     list[i] = list[i].copyWith(money: picked, verified: true);
     _items.value = list;
@@ -85,7 +99,22 @@ class _ScanResultSheetState extends State<ScanResultSheet> {
   }
 
   void _finish(ResultAction action) =>
-      Navigator.pop(context, ScanResultOutcome(action, _items.value));
+      Navigator.pop(context, SheetOutcome(action, _items.value, _wasAdded));
+
+  void _addCurrentToTotal() {
+    if (_wasAdded || _items.value.isEmpty) {
+      return;
+    }
+    final scanner = context.read<ScannerProvider>();
+
+    if (widget.tempPath != null) {
+      scanner.addCurrentFrameToTotal(widget.tempPath!, _items.value);
+    }
+
+    setState(() {
+      _wasAdded = true;
+    });
+  }
 
   List<_Group> _groups(List<Detection> items) {
     final map = <int, List<int>>{};
@@ -112,7 +141,6 @@ class _ScanResultSheetState extends State<ScanResultSheet> {
         verified: true,
       );
     }
-    // Show the weakest item, so one doubtful coin is never hidden.
     final worst = unverified.reduce(
       (a, b) => a.confidence <= b.confidence ? a : b,
     );
@@ -128,8 +156,11 @@ class _ScanResultSheetState extends State<ScanResultSheet> {
     final text = Theme.of(context).textTheme;
     final maxListHeight = MediaQuery.sizeOf(context).height * 0.36;
 
+    final scanner = context.watch<ScannerProvider>();
+    final runningTotal = scanner.runningTotalCentavos;
+
     return PopScope(
-      canPop: false, // the Back button cannot close the sheet
+      canPop: false,
       child: Container(
         decoration: const BoxDecoration(
           color: Color(0xFF0A1D3A),
@@ -143,6 +174,7 @@ class _ScanResultSheetState extends State<ScanResultSheet> {
               final groups = _groups(items);
               final n = items.length;
               final hasLow = items.any((d) => d.isLowConfidence);
+              final currentScanTotal = totalCentavos(items);
 
               return Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
@@ -180,15 +212,45 @@ class _ScanResultSheetState extends State<ScanResultSheet> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('TOTAL', style: text.labelSmall),
+                            Text('CURRENT SCAN', style: text.labelSmall),
                             Text(
-                              formatPeso(totalCentavos(items)),
+                              formatPeso(currentScanTotal),
                               style: AppText.mono(size: 32, color: c.gold),
                             ),
                           ],
                         ),
                       ],
                     ),
+
+                    if (runningTotal > 0) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF060F1F),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: c.border),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Running Total:',
+                              style: TextStyle(color: c.textSecondary),
+                            ),
+                            Text(
+                              formatPeso(runningTotal),
+                              style: TextStyle(
+                                color: c.gold,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 16),
                     if (hasLow) ...[
                       _LowConfidenceBanner(color: c.danger),
@@ -248,39 +310,91 @@ class _ScanResultSheetState extends State<ScanResultSheet> {
                       ),
                     ],
                     const SizedBox(height: 14),
+
                     Row(
                       children: [
                         Expanded(
-                          flex: 2,
-                          child: SoftButton(
-                            label: 'Discard',
-                            onPressed: () => _finish(ResultAction.discard),
+                          child: OutlinedButton.icon(
+                            onPressed: () => _finish(ResultAction.resume),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Scan Again'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 50),
+                              side: BorderSide(color: c.border),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          flex: 3,
                           child: GoldButton(
-                            label: 'Save to History',
-                            onPressed: items.isEmpty
+                            label: _wasAdded ? 'Added ✓' : 'Add to Total',
+                            onPressed: _wasAdded || items.isEmpty
                                 ? null
-                                : () => _finish(ResultAction.save),
+                                : _addCurrentToTotal,
                           ),
                         ),
                       ],
                     ),
-                    TextButton.icon(
-                      key: const Key('btn-rescan'),
-                      onPressed: () => _finish(ResultAction.rescan),
-                      icon: Icon(
-                        Icons.refresh_rounded,
-                        size: 18,
-                        color: c.gold,
-                      ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: items.isEmpty && runningTotal == 0
+                          ? null
+                          : () {
+                              if (!_wasAdded) {
+                                _addCurrentToTotal();
+                              }
+                              _finish(ResultAction.saveSession);
+                            },
+                      icon: Icon(Icons.save_alt, color: c.textPrimary),
                       label: Text(
-                        'Not right? Rescan',
-                        style: TextStyle(color: c.gold),
+                        'Save Session to History',
+                        style: TextStyle(color: c.textPrimary, fontSize: 16),
                       ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        side: BorderSide(color: c.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+
+                    // --- FIXED: Both buttons now show up correctly ---
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        // Discard always shows up now
+                        TextButton.icon(
+                          onPressed: () => _finish(ResultAction.discard),
+                          icon: Icon(Icons.close, color: c.textMuted, size: 18),
+                          label: Text(
+                            'Discard & Exit',
+                            style: TextStyle(color: c.textMuted),
+                          ),
+                        ),
+
+                        // Reset Total only shows up if there is a running total to reset
+                        if (runningTotal > 0)
+                          TextButton.icon(
+                            onPressed: () {
+                              scanner.resetRunningTotal();
+                              setState(() => _wasAdded = false);
+                            },
+                            icon: Icon(
+                              Icons.delete_outline,
+                              color: c.danger,
+                              size: 18,
+                            ),
+                            label: Text(
+                              'Reset Total',
+                              style: TextStyle(color: c.danger),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
@@ -327,7 +441,7 @@ class _BreakdownRow extends StatelessWidget {
   final int quantity;
   final String title;
   final String subtitle;
-  final int value; // centavos
+  final int value;
   final Widget chip;
   final VoidCallback onTap;
 
@@ -345,7 +459,6 @@ class _BreakdownRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-
     return Material(
       color: shaded ? const Color(0xFF101B38) : const Color(0xFF0C1930),
       child: InkWell(

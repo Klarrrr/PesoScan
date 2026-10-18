@@ -13,19 +13,22 @@ ScanRecord _make({
   String? userId,
   double confidence = 0.9,
 }) {
+  // Create the list of detections first
+  final detections = [
+    for (final classId in classIds)
+      Detection(
+        money: MoneyClasses.byId(classId),
+        confidence: confidence,
+        box: const Rect.fromLTWH(0.1, 0.1, 0.1, 0.1),
+      ),
+  ];
+
+  // Wrap the detections in a ScanFrame to match the new multi-frame architecture
   return ScanRecord(
     id: id,
     userId: userId,
     createdAt: createdAt,
-    imagePath: '',
-    detections: [
-      for (final classId in classIds)
-        Detection(
-          money: MoneyClasses.byId(classId),
-          confidence: confidence,
-          box: const Rect.fromLTWH(0.1, 0.1, 0.1, 0.1),
-        ),
-    ],
+    frames: [ScanFrame(imagePath: '', detections: detections)],
   );
 }
 
