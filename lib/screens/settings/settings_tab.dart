@@ -105,6 +105,11 @@ class _SettingsTabState extends State<SettingsTab> {
     if (ok) await SystemNavigator.pop();
   }
 
+  // --- NEW: Handle Guest Login Intercept ---
+  void _promptGuestLogin() {
+    Navigator.pushNamed(context, AppRoutes.login);
+  }
+
   // ---------------------------------------------------------------
   // Screen
   // ---------------------------------------------------------------
@@ -115,6 +120,9 @@ class _SettingsTabState extends State<SettingsTab> {
     final settings = context.watch<SettingsProvider>();
     final auth = context.watch<AuthProvider>();
     final text = Theme.of(context).textTheme;
+
+    // Determine if the current session is an anonymous guest
+    final isGuest = auth.email == null || auth.email!.isEmpty;
 
     return SafeArea(
       bottom: false,
@@ -131,7 +139,14 @@ class _SettingsTabState extends State<SettingsTab> {
 
           // ---- Account ----
           const _SectionTitle('ACCOUNT'),
-          _AccountCard(username: auth.username, email: auth.email),
+          _AccountCard(
+            username: isGuest ? 'Guest' : auth.username,
+            email: isGuest ? 'Tap to log in or create account' : auth.email,
+            isGuest: isGuest,
+            onTap: isGuest
+                ? _promptGuestLogin
+                : () => Navigator.pushNamed(context, AppRoutes.accountDetails),
+          ),
           const SizedBox(height: 10),
           _Group(
             children: [
@@ -139,10 +154,16 @@ class _SettingsTabState extends State<SettingsTab> {
                 key: const Key('tile-account-details'),
                 icon: Icons.badge_outlined,
                 title: 'Account Details',
-                subtitle: 'Hidden until you enter your password',
+                subtitle: isGuest
+                    ? 'Sign in to view details'
+                    : 'Hidden until you enter your password',
                 trailing: const _Chevron(),
-                onTap: () =>
-                    Navigator.pushNamed(context, AppRoutes.accountDetails),
+                onTap: isGuest
+                    ? _promptGuestLogin
+                    : () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.accountDetails,
+                      ),
               ),
 
               _Tile(
@@ -150,13 +171,17 @@ class _SettingsTabState extends State<SettingsTab> {
                 icon: Icons.lock_outline,
                 title: 'Change Password',
                 trailing: const _Chevron(),
-                onTap: () =>
-                    Navigator.pushNamed(context, AppRoutes.changePassword),
+                onTap: isGuest
+                    ? _promptGuestLogin
+                    : () => Navigator.pushNamed(
+                        context,
+                        AppRoutes.changePassword,
+                      ),
               ),
               _Tile(
                 key: const Key('tile-logout'),
                 icon: Icons.logout_rounded,
-                title: 'Log Out',
+                title: isGuest ? 'Sign Out of Guest Mode' : 'Log Out',
                 trailing: const _Chevron(),
                 onTap: _logout,
               ),
@@ -482,10 +507,19 @@ class _GoldSwitch extends StatelessWidget {
   }
 }
 
+// --- MODIFIED: Added isGuest and onTap parameters ---
 class _AccountCard extends StatelessWidget {
   final String? username;
   final String? email;
-  const _AccountCard({required this.username, required this.email});
+  final bool isGuest;
+  final VoidCallback onTap;
+
+  const _AccountCard({
+    required this.username,
+    required this.email,
+    required this.isGuest,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -505,7 +539,7 @@ class _AccountCard extends StatelessWidget {
         child: InkWell(
           key: const Key('card-account'),
           borderRadius: BorderRadius.circular(20),
-          onTap: () => Navigator.pushNamed(context, AppRoutes.accountDetails),
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -524,7 +558,9 @@ class _AccountCard extends StatelessWidget {
                           fontFamily: AppFonts.heading,
                           fontWeight: FontWeight.w600,
                           fontSize: 17,
-                          color: c.textPrimary,
+                          color: isGuest
+                              ? c.gold
+                              : c.textPrimary, // Highlight Guest in Gold
                         ),
                       ),
                       Text(
@@ -536,7 +572,10 @@ class _AccountCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded, color: c.textMuted),
+                Icon(
+                  isGuest ? Icons.login_rounded : Icons.chevron_right_rounded,
+                  color: c.textMuted,
+                ),
               ],
             ),
           ),
