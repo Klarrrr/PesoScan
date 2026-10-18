@@ -308,6 +308,15 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> signInAsGuest() async {
+    try {
+      // Supabase creates a temporary anonymous account behind the scenes
+      await Supabase.instance.client.auth.signInAnonymously();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Guest login failed: $e');
+    }
+  }
   // ---------------------------------------------------------------
   // Forgot password (NEW in Part 7)
   // ---------------------------------------------------------------
