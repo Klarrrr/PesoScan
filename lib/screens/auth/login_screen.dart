@@ -9,6 +9,7 @@ import '../../services/terms_consent.dart';
 import '../../widgets/agreement_field.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_scaffold.dart';
+import '../../widgets/confirm_dialog.dart'; // Added for the guest confirmation bubble
 import '../../widgets/gold_button.dart';
 import 'auth_flows.dart';
 
@@ -81,6 +82,44 @@ class _LoginScreenState extends State<LoginScreen> {
       _loading = false;
       _error = result.message;
     });
+  }
+
+  // --- NEW: Guest Login Handler ---
+  Future<void> _handleGuestLogin(BuildContext context) async {
+    final proceed = await ConfirmDialog.show(
+      context,
+      icon: Icons.person_outline_rounded,
+      title: 'Continue as guest?',
+      message: 'You can use the app normally, but your scan history will only be saved on this device. If you uninstall the app, your history will be lost.',
+      confirmLabel: 'Yes, continue',
+      cancelLabel: 'No',
+    );
+
+    if (proceed == true) {
+      if (!context.mounted) return;
+
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+
+      // 1. Trigger the guest login in your AuthProvider
+      await context.read<AuthProvider>().signInAsGuest();
+
+      if (!context.mounted) return;
+
+      // 2. Stop the loading spinner
+      setState(() => _loading = false);
+
+      // 3. Navigate to the main app screen and clear the back button history
+      // Note: If your main app route is named something else, change AppRoutes.home
+      // to match your setup (e.g., AppRoutes.main or AppRoutes.dashboard)
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.home,
+        (route) => false,
+      );
+    }
   }
 
   @override
@@ -178,6 +217,23 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
+
+        // --- NEW: Sign in as a guest button ---
+        const SizedBox(height: 8),
+        Center(
+          child: TextButton(
+            onPressed: _loading ? null : () => _handleGuestLogin(context),
+            child: Text(
+              'Sign in as a guest',
+              style: TextStyle(
+                color: c.textMuted,
+                decoration: TextDecoration.underline,
+                decorationColor: c.textMuted,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
       ],
     );
   }
