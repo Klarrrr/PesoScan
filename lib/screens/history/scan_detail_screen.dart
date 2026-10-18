@@ -17,10 +17,7 @@ import '../../widgets/screen_header.dart';
 import '../../services/scan_exporter.dart';
 import '../../widgets/auth_scaffold.dart' show BrandLogo;
 
-/// Page 11 of the prototype.
-/// Page 11 of the prototype, plus Share / Save / Copy (Part 16).
-
-/// Page 11 of the prototype, plus Share / Save / Copy (Part 16).
+/// Page 11 of the prototype, updated to support Multi-Frame Sessions.
 class ScanDetailScreen extends StatefulWidget {
   final ScanRecord record;
 
@@ -41,11 +38,24 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
   /// 'share' | 'save' | 'copy' while one is running, otherwise null.
   String? _busy;
 
+  // --- NEW: Multi-Frame Selector ---
+  // If null, show overall session total. If set, show specific image details.
+  ScanFrame? _selectedFrame;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to the first frame if there is only 1 photo in the session
+    if (widget.record.frames.length == 1) {
+      _selectedFrame = widget.record.frames.first;
+    }
+  }
+
   Future<void> _run(
     String action,
     Future<ExportOutcome> Function() work,
   ) async {
-    if (_busy != null) return; // ignore taps while one is running
+    if (_busy != null) return;
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _busy = action);
 
@@ -68,12 +78,11 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
     if (!mounted) return;
 
     if (message.isNotEmpty) {
-      messenger.removeCurrentSnackBar(); // clears existing snackbar immediately
+      messenger.removeCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
           content: Text(message),
-          behavior:
-              SnackBarBehavior.floating, // floats cleanly so gestures pass
+          behavior: SnackBarBehavior.floating,
           duration: const Duration(milliseconds: 1500),
         ),
       );
@@ -85,10 +94,16 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
     final c = context.colors;
     final record = widget.record;
 
+    // --- Determine what data to show (Session vs Selected Frame) ---
+    final displayTotal =
+        _selectedFrame?.frameTotalCentavos ?? record.totalCentavos;
+    final displayItemCount = _selectedFrame?.itemCount ?? record.itemCount;
+    final displayDetections =
+        _selectedFrame?.detections ??
+        record.frames.expand((f) => f.detections).toList();
+
     return Scaffold(
       body: SafeArea(
-        // A plain scroll view (not ListView) builds everything at once, so
-        // the whole card exists and can be photographed.
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(4, 12, 4, 100),
           child: Column(
@@ -97,7 +112,7 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: ScreenHeader(
-                  title: 'Scan Detail',
+                  title: 'Session Details',
                   subtitle: DateFormat('EEEE, MMMM d, yyyy')
                       .format(record.createdAt),
                 ),
@@ -108,19 +123,29 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
               RepaintBoundary(
                 key: _cardKey,
                 child: Container(
-                  color: c.background, // solid, so the PNG is not see-through
+                  color: c.background,
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _BrandRow(when: record.createdAt),
                       const SizedBox(height: 14),
-                      _ScanPhoto(record: record),
+
+                      // The main photo (or placeholder if looking at overall totals)
+                      _ScanPhoto(frame: _selectedFrame),
                       const SizedBox(height: 14),
-                      _SummaryCard(record: record),
+
+                      // Summary metrics
+                      _SummaryCard(
+                        totalCentavos: displayTotal,
+                        itemCount: displayItemCount,
+                      ),
                       const SizedBox(height: 14),
-                      _ItemsTable(record: record),
+
+                      // The itemized breakdown
+                      _ItemsTable(detections: displayDetections),
                       const SizedBox(height: 14),
+
                       Text(
                         'Counted with PesoScan. For counting only: it cannot '
                         'tell real money from fake.',
@@ -132,6 +157,58 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
                 ),
               ),
 
+              // --- NEW: Thumbnail Gallery Row ---
+              if (record.frames.length > 1) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
+                  child: Text(
+                    'Session Images (${record.frames.length})',
+                    style: TextStyle(color: c.textSecondary),
+                  ),
+                ),
+                SizedBox(
+                  height: 80,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: record.frames.length,
+                    itemBuilder: (context, index) {
+                      final frame = record.frames[index];
+                      final isSelected = _selectedFrame == frame;
+
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            // Toggle selection off to see the Grand Total again
+                            _selectedFrame = isSelected ? null : frame;
+                          });
+                        },
+                        child: Container(
+                          width: 60,
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: isSelected ? c.gold : Colors.transparent,
+                              width: 3,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                            image: DecorationImage(
+                              image: FileImage(File(frame.imagePath)),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Export Buttons
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Row(
@@ -301,10 +378,10 @@ class _ExportButton extends StatelessWidget {
   }
 }
 
-/// The saved photo with a box on every item.
+/// The saved photo with a box on every item, modified to take a single frame.
 class _ScanPhoto extends StatefulWidget {
-  final ScanRecord record;
-  const _ScanPhoto({required this.record});
+  final ScanFrame? frame;
+  const _ScanPhoto({required this.frame});
 
   @override
   State<_ScanPhoto> createState() => _ScanPhotoState();
@@ -312,24 +389,37 @@ class _ScanPhoto extends StatefulWidget {
 
 class _ScanPhotoState extends State<_ScanPhoto> {
   File? _file;
-  double? _aspect; // photo width / height, known once the photo is read
+  double? _aspect;
   ImageStream? _stream;
   ImageStreamListener? _listener;
 
   @override
   void initState() {
     super.initState();
-    final path = widget.record.imagePath;
-    if (path.isNotEmpty) {
+    _loadImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ScanPhoto oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.frame != widget.frame) {
+      _loadImage();
+    }
+  }
+
+  void _loadImage() {
+    _file = null;
+    _aspect = null;
+    final path = widget.frame?.imagePath;
+    if (path != null && path.isNotEmpty) {
       final file = File(path);
       if (file.existsSync()) {
-        _file = file;
+        setState(() => _file = file);
         _readPhotoSize(file);
       }
     }
   }
 
-  // Ask Flutter for the photo's real shape, so the boxes line up with it.
   void _readPhotoSize(File file) {
     final stream = FileImage(file).resolve(const ImageConfiguration());
     final listener = ImageStreamListener(
@@ -356,11 +446,38 @@ class _ScanPhotoState extends State<_ScanPhoto> {
 
   @override
   Widget build(BuildContext context) {
-    final aspect = _aspect ?? 3 / 4; // a neutral shape until the photo is read
+    final aspect = _aspect ?? 3 / 4;
+
+    // If no frame is selected (meaning they want to see the Grand Total of multiple frames)
+    if (widget.frame == null) {
+      return Container(
+        height: 120,
+        decoration: BoxDecoration(
+          color: context.colors.chip,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.photo_library_outlined,
+                color: context.colors.textMuted,
+                size: 32,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Select an image below to view details',
+                style: TextStyle(color: context.colors.textMuted),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Center(
       child: ConstrainedBox(
-        // Tall portrait photos must not fill the whole screen.
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.5,
         ),
@@ -370,7 +487,6 @@ class _ScanPhotoState extends State<_ScanPhoto> {
             aspectRatio: aspect,
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // The area has the photo's own shape, so this maps 1:1.
                 final mapper = FrameMapper(
                   area: constraints.biggest,
                   frameAspect: aspect,
@@ -382,7 +498,7 @@ class _ScanPhotoState extends State<_ScanPhoto> {
                       Image.file(_file!, fit: BoxFit.fill)
                     else
                       const _NoPhoto(),
-                    for (final d in widget.record.detections)
+                    for (final d in widget.frame!.detections)
                       Positioned.fromRect(
                         rect: mapper.toArea(d.box),
                         child: _LevelBox(detection: d),
@@ -433,7 +549,6 @@ class _NoPhoto extends StatelessWidget {
   }
 }
 
-/// Outline coloured by confidence, with the value on its corner.
 class _LevelBox extends StatelessWidget {
   final Detection detection;
   const _LevelBox({required this.detection});
@@ -480,8 +595,10 @@ class _LevelBox extends StatelessWidget {
 }
 
 class _SummaryCard extends StatelessWidget {
-  final ScanRecord record;
-  const _SummaryCard({required this.record});
+  final int totalCentavos;
+  final int itemCount;
+
+  const _SummaryCard({required this.totalCentavos, required this.itemCount});
 
   @override
   Widget build(BuildContext context) {
@@ -507,7 +624,7 @@ class _SummaryCard extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    formatPeso(record.totalCentavos),
+                    formatPeso(totalCentavos),
                     style: AppText.mono(size: 32, color: c.gold),
                   ),
                 ),
@@ -520,7 +637,7 @@ class _SummaryCard extends StatelessWidget {
               Text('ITEMS', style: text.labelSmall),
               const SizedBox(height: 4),
               Text(
-                '${record.itemCount}',
+                '$itemCount',
                 style: AppText.mono(size: 32, color: c.textPrimary),
               ),
             ],
@@ -532,14 +649,14 @@ class _SummaryCard extends StatelessWidget {
 }
 
 class _ItemsTable extends StatelessWidget {
-  final ScanRecord record;
-  const _ItemsTable({required this.record});
+  final List<Detection> detections;
+  const _ItemsTable({required this.detections});
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final text = Theme.of(context).textTheme;
-    final groups = countByClass(record.detections).entries.toList();
+    final groups = countByClass(detections).entries.toList();
 
     return Container(
       clipBehavior: Clip.antiAlias,
