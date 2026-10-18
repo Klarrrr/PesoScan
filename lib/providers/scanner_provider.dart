@@ -6,6 +6,7 @@ import '../core/constants.dart';
 import '../core/guidance.dart';
 import '../core/scan_math.dart' as math;
 import '../models/detection.dart';
+import '../models/scan_record.dart';
 import '../services/detection_tracker.dart';
 import '../services/frame_analyzer.dart';
 
@@ -40,7 +41,33 @@ class ScannerProvider extends ChangeNotifier {
   final int _failures = 0;
 
   late DateTime _lastItemsAt = _now();
-  DateTime _lastRun = DateTime.fromMillisecondsSinceEpoch(0);
+
+  // --- NEW: Multi-Frame Session State ---
+  final List<ScanFrame> _sessionFrames = [];
+
+  List<ScanFrame> get sessionFrames => _sessionFrames;
+
+  int get runningTotalCentavos =>
+      _sessionFrames.fold(0, (sum, f) => sum + f.frameTotalCentavos);
+
+  int get runningItemCount =>
+      _sessionFrames.fold(0, (sum, f) => sum + f.itemCount);
+
+  void addCurrentFrameToTotal(
+    String imagePath,
+    List<Detection> finalDetections,
+  ) {
+    _sessionFrames.add(
+      ScanFrame(imagePath: imagePath, detections: finalDetections),
+    );
+    notifyListeners();
+  }
+
+  void resetRunningTotal() {
+    _sessionFrames.clear();
+    notifyListeners();
+  }
+  // --------------------------------------
 
   List<Detection> get detections => _detections;
   int get count => _detections.length;
@@ -58,17 +85,14 @@ class ScannerProvider extends ChangeNotifier {
   bool get processingFailed => _failures >= AppConstants.failuresBeforeError;
   bool get hasProblem => hasStartupError || processingFailed;
 
-  // Wait 10 full seconds before showing the "No coins found" message
-  bool get noItemsFound =>
-      _ready &&
-      !_frozen &&
-      !processingFailed &&
-      !_dismissedNoItems &&
-      _detections.isEmpty &&
-      _now().difference(_lastItemsAt) >= const Duration(seconds: 10);
-
-  bool get isDemoMode => false;
-  String? get demoReason => null;
+  bool get noItemsFound {
+    return _ready &&
+        !_frozen &&
+        !processingFailed &&
+        !_dismissedNoItems &&
+        _detections.isEmpty &&
+        _now().difference(_lastItemsAt) >= const Duration(seconds: 10);
+  }
 
   void dismissEmptyMessage() {
     _dismissedNoItems = true;
@@ -78,21 +102,15 @@ class ScannerProvider extends ChangeNotifier {
   void start() {
     _ready = true;
     _lastItemsAt = _now();
-    if (!_disposed) notifyListeners();
-  }
-
-  void retry() {
-    start();
+    if (!_disposed) {
+      notifyListeners();
+    }
   }
 
   void updateDetections(List<Detection> rawDetections) {
-    if (!_ready || _frozen || _disposed) return;
-
-    // UI Frame Throttling: only redraw Flutter UI every 150ms
-    // This stops the extreme FPS lag by letting the camera stay smooth!
-    final now = _now();
-    if (now.difference(_lastRun) < const Duration(milliseconds: 150)) return;
-    _lastRun = now;
+    if (!_ready || _frozen || _disposed) {
+      return;
+    }
 
     final before = _detections.length;
 
@@ -104,19 +122,19 @@ class ScannerProvider extends ChangeNotifier {
     _detections = tracker.update(inView);
 
     if (_detections.isNotEmpty) {
-      _lastItemsAt = now;
-      _dismissedNoItems = false; // Reset the "X" button if new items appear
+      _lastItemsAt = _now();
+      _dismissedNoItems = false;
     }
 
     final added = _detections.length - before;
-
     _refreshGuidance();
     notifyListeners();
 
-    if (added > 0) onItemsLocked?.call(added);
+    if (added > 0) {
+      onItemsLocked?.call(added);
+    }
   }
 
-  // Used by the Gallery Picker to force detections into the state
   void injectAndFreeze(List<Detection> injectedDetections) {
     _detections = injectedDetections;
     _frozen = true;
@@ -124,7 +142,9 @@ class ScannerProvider extends ChangeNotifier {
   }
 
   void updateSignals(FrameSignals signals) {
-    if (_frozen || _disposed) return;
+    if (_frozen || _disposed) {
+      return;
+    }
     _signals = signals;
     _refreshGuidance();
     notifyListeners();
@@ -132,7 +152,9 @@ class ScannerProvider extends ChangeNotifier {
 
   double _visibleShare(Rect box) {
     final area = box.width * box.height;
-    if (area <= 0 || !box.overlaps(visibleRegion)) return 0;
+    if (area <= 0 || !box.overlaps(visibleRegion)) {
+      return 0;
+    }
     final inside = box.intersect(visibleRegion);
     return inside.width * inside.height / area;
   }
@@ -159,16 +181,17 @@ class ScannerProvider extends ChangeNotifier {
 
   void resume() {
     _frozen = false;
-    reset();
-  }
-
-  void reset() {
     tracker.reset();
     _guidance.reset();
     _detections = const [];
     _tips = const [];
     _lastItemsAt = _now();
     notifyListeners();
+  }
+
+  void reset() {
+    resume();
+    resetRunningTotal();
   }
 
   @override

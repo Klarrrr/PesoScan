@@ -42,9 +42,11 @@ class ScanSaver {
 
   Future<PendingScan> prepare(String? tempPhotoPath) async {
     final id = _newId();
+
     if (tempPhotoPath == null) {
       return PendingScan(id: id, imagePath: '', photoLost: true);
     }
+
     try {
       final path = await _images.save(tempPath: tempPhotoPath, scanId: id);
       return PendingScan(id: id, imagePath: path, photoLost: false);
@@ -66,23 +68,32 @@ class ScanSaver {
         ScanRecord(
           id: pending.id,
           createdAt: _now(),
-          imagePath: pending.imagePath,
-          detections: detections,
           userId: userId,
+          // --- FIXED: Wrapped image and detections inside a ScanFrame ---
+          frames: [
+            ScanFrame(imagePath: pending.imagePath, detections: detections),
+          ],
         ),
       );
-      return pending.photoLost
-          ? SaveOutcome.savedWithoutPhoto
-          : SaveOutcome.saved;
+
+      if (pending.photoLost) {
+        return SaveOutcome.savedWithoutPhoto;
+      } else {
+        return SaveOutcome.saved;
+      }
     } catch (e) {
       debugPrint('Saving the scan failed: $e');
-      return isStorageFullError(e)
-          ? SaveOutcome.storageFull
-          : SaveOutcome.failed;
+
+      if (isStorageFullError(e)) {
+        return SaveOutcome.storageFull;
+      } else {
+        return SaveOutcome.failed;
+      }
     }
   }
 
   /// The scan will not be saved after all: remove its photo.
-  Future<void> abandon(PendingScan pending) =>
-      _images.delete(pending.imagePath);
+  Future<void> abandon(PendingScan pending) async {
+    await _images.delete(pending.imagePath);
+  }
 }
