@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:gal/gal.dart';
 
 import '../../core/app_colors.dart';
 import '../../core/app_theme.dart';
@@ -11,17 +12,14 @@ import '../../core/frame_mapper.dart';
 import '../../core/money.dart';
 import '../../core/scan_math.dart';
 import '../../models/detection.dart';
+import '../../models/money_class.dart';
 import '../../models/scan_record.dart';
 import '../../widgets/screen_header.dart';
-
 import '../../services/scan_exporter.dart';
 import '../../widgets/auth_scaffold.dart' show BrandLogo;
 
-/// Page 11 of the prototype, updated to support Multi-Frame Sessions.
 class ScanDetailScreen extends StatefulWidget {
   final ScanRecord record;
-
-  /// Tests pass an exporter with fake actions; the app uses the real one.
   final ScanExporter? exporter;
 
   const ScanDetailScreen({super.key, required this.record, this.exporter});
@@ -31,31 +29,21 @@ class ScanDetailScreen extends StatefulWidget {
 }
 
 class _ScanDetailScreenState extends State<ScanDetailScreen> {
-  // Marks the part of the screen that becomes the exported picture.
   final GlobalKey _cardKey = GlobalKey();
   late final ScanExporter _exporter = widget.exporter ?? ScanExporter();
-
-  /// 'share' | 'save' | 'copy' while one is running, otherwise null.
   String? _busy;
 
-  // --- NEW: Multi-Frame Selector ---
-  // If null, show overall session total. If set, show specific image details.
-  ScanFrame? _selectedFrame;
-
-  @override
-  void initState() {
-    super.initState();
-    // Default to the first frame if there is only 1 photo in the session
-    if (widget.record.frames.length == 1) {
-      _selectedFrame = widget.record.frames.first;
-    }
-  }
+  // null = "All", otherwise index of the selected frame
+  int? _selectedIndex;
 
   Future<void> _run(
     String action,
     Future<ExportOutcome> Function() work,
   ) async {
-    if (_busy != null) return;
+    if (_busy != null) {
+      return;
+    }
+
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _busy = action);
 
@@ -75,7 +63,9 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
       }
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     if (message.isNotEmpty) {
       messenger.removeCurrentSnackBar();
@@ -89,170 +79,63 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final record = widget.record;
-
-    // --- Determine what data to show (Session vs Selected Frame) ---
-    final displayTotal =
-        _selectedFrame?.frameTotalCentavos ?? record.totalCentavos;
-    final displayItemCount = _selectedFrame?.itemCount ?? record.itemCount;
-    final displayDetections =
-        _selectedFrame?.detections ??
-        record.frames.expand((f) => f.detections).toList();
-
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(4, 12, 4, 100),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+  void _showFullImage(String path) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: ScreenHeader(
-                  title: 'Session Details',
-                  subtitle: DateFormat('EEEE, MMMM d, yyyy')
-                      .format(record.createdAt),
-                ),
+              InteractiveViewer(
+                child: Image.file(File(path), fit: BoxFit.contain),
               ),
-              const SizedBox(height: 14),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.download_rounded, size: 28),
+                  color: Colors.white,
+                  style: IconButton.styleFrom(backgroundColor: Colors.black54),
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      final hasAccess = await Gal.hasAccess();
+                      if (!hasAccess) {
+                        await Gal.requestAccess();
+                      }
+                      await Gal.putImage(path);
 
-              // Everything inside this RepaintBoundary is what gets exported.
-              RepaintBoundary(
-                key: _cardKey,
-                child: Container(
-                  color: c.background,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _BrandRow(when: record.createdAt),
-                      const SizedBox(height: 14),
-
-                      // The main photo (or placeholder if looking at overall totals)
-                      _ScanPhoto(frame: _selectedFrame),
-                      const SizedBox(height: 14),
-
-                      // Summary metrics
-                      _SummaryCard(
-                        totalCentavos: displayTotal,
-                        itemCount: displayItemCount,
-                      ),
-                      const SizedBox(height: 14),
-
-                      // The itemized breakdown
-                      _ItemsTable(detections: displayDetections),
-                      const SizedBox(height: 14),
-
-                      Text(
-                        'Counted with PesoScan. For counting only: it cannot '
-                        'tell real money from fake.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // --- NEW: Thumbnail Gallery Row ---
-              if (record.frames.length > 1) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8.0,
-                  ),
-                  child: Text(
-                    'Session Images (${record.frames.length})',
-                    style: TextStyle(color: c.textSecondary),
-                  ),
-                ),
-                SizedBox(
-                  height: 80,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: record.frames.length,
-                    itemBuilder: (context, index) {
-                      final frame = record.frames[index];
-                      final isSelected = _selectedFrame == frame;
-
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            // Toggle selection off to see the Grand Total again
-                            _selectedFrame = isSelected ? null : frame;
-                          });
-                        },
-                        child: Container(
-                          width: 60,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: isSelected ? c.gold : Colors.transparent,
-                              width: 3,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                            image: DecorationImage(
-                              image: FileImage(File(frame.imagePath)),
-                              fit: BoxFit.cover,
-                            ),
-                          ),
+                      if (!mounted) {
+                        return;
+                      }
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Original photo saved to Gallery'),
                         ),
                       );
-                    },
-                  ),
+                    } catch (e) {
+                      if (!mounted) {
+                        return;
+                      }
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('Failed to save image: $e')),
+                      );
+                    }
+                  },
                 ),
-                const SizedBox(height: 16),
-              ],
-
-              // Export Buttons
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _ExportButton(
-                        key: const Key('btn-share'),
-                        icon: Icons.ios_share_rounded,
-                        label: 'Share',
-                        busy: _busy == 'share',
-                        enabled: _busy == null,
-                        onTap: () => _run(
-                          'share',
-                          () => _exporter.share(_cardKey, record),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _ExportButton(
-                        key: const Key('btn-save'),
-                        icon: Icons.download_rounded,
-                        label: 'Save',
-                        busy: _busy == 'save',
-                        enabled: _busy == null,
-                        onTap: () => _run(
-                          'save',
-                          () => _exporter.saveToDevice(_cardKey, record),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _ExportButton(
-                        key: const Key('btn-copy'),
-                        icon: Icons.copy_rounded,
-                        label: 'Copy total',
-                        busy: _busy == 'copy',
-                        enabled: _busy == null,
-                        onTap: () =>
-                            _run('copy', () => _exporter.copyTotal(record)),
-                      ),
-                    ),
-                  ],
+              ),
+              Positioned(
+                top: 8,
+                left: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.close, size: 28),
+                  color: Colors.white,
+                  style: IconButton.styleFrom(backgroundColor: Colors.black54),
+                  onPressed: () => Navigator.pop(dialogContext),
                 ),
               ),
             ],
@@ -261,54 +144,567 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
       ),
     );
   }
-}
-
-/// Logo, name and date at the top of the exported picture.
-class _BrandRow extends StatelessWidget {
-  final DateTime when;
-  const _BrandRow({required this.when});
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final record = widget.record;
 
-    return Row(
-      children: [
-        const BrandLogo(size: 28),
-        const SizedBox(width: 8),
-        Text.rich(
-          TextSpan(
-            style: const TextStyle(
-              fontFamily: AppFonts.heading,
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
+    final allDetections = record.frames.expand((f) => f.detections).toList();
+    final uniqueDenominations = allDetections
+        .map((d) => d.money.id)
+        .toSet()
+        .length;
+
+    final displayDetections = _selectedIndex == null
+        ? allDetections
+        : record.frames[_selectedIndex!].detections;
+
+    final displayTotal = _selectedIndex == null
+        ? record.totalCentavos
+        : record.frames[_selectedIndex!].frameTotalCentavos;
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: Column(
+          children: [
+            const Text(
+              'History Detail',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            children: [
-              TextSpan(
-                text: 'Peso',
-                style: TextStyle(color: c.textPrimary),
+            Text(
+              DateFormat('MMM d, yyyy · hh:mm a').format(record.createdAt),
+              style: TextStyle(fontSize: 12, color: c.textMuted),
+            ),
+          ],
+        ),
+        centerTitle: true,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+          child: RepaintBoundary(
+            key: _cardKey,
+            child: Container(
+              color: c.background,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 1. HERO CARD (Full Session Total)
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: c.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: c.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'FULL SESSION TOTAL',
+                              style: TextStyle(
+                                color: c.textMuted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: c.gold.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: c.gold),
+                              ),
+                              child: Text(
+                                '${record.frames.length} IMAGES',
+                                style: TextStyle(
+                                  color: c.gold,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            formatPeso(record.totalCentavos),
+                            style: TextStyle(
+                              color: c.gold,
+                              fontSize: 44,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _StatText('${record.itemCount}', 'items'),
+                            Container(width: 1, height: 16, color: c.border),
+                            _StatText('${record.frames.length}', 'images'),
+                            Container(width: 1, height: 16, color: c.border),
+                            _StatText('$uniqueDenominations', 'denominations'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // 2. SCANNED IMAGES CAROUSEL
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Scanned Images',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        'Select one for details',
+                        style: TextStyle(fontSize: 12, color: c.textMuted),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 100,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        // "All" Selector
+                        GestureDetector(
+                          onTap: () => setState(() => _selectedIndex = null),
+                          child: Container(
+                            width: 80,
+                            margin: const EdgeInsets.only(right: 12),
+                            decoration: BoxDecoration(
+                              color: _selectedIndex == null
+                                  ? c.gold.withValues(alpha: 0.1)
+                                  : c.surface,
+                              border: Border.all(
+                                color: _selectedIndex == null
+                                    ? c.gold
+                                    : c.border,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.bar_chart_rounded,
+                                  color: _selectedIndex == null
+                                      ? c.gold
+                                      : c.textMuted,
+                                  size: 28,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'All',
+                                  style: TextStyle(
+                                    color: _selectedIndex == null
+                                        ? c.gold
+                                        : c.textMuted,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // Individual Image Thumbnails
+                        for (var i = 0; i < record.frames.length; i++)
+                          GestureDetector(
+                            onTap: () => setState(() => _selectedIndex = i),
+                            child: Container(
+                              width: 100,
+                              margin: const EdgeInsets.only(right: 12),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: _selectedIndex == i
+                                      ? c.gold
+                                      : c.border,
+                                  width: 2,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                                image: DecorationImage(
+                                  image: FileImage(
+                                    File(record.frames[i].imagePath),
+                                  ),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              child: Align(
+                                alignment: Alignment.bottomCenter,
+                                child: Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.7),
+                                    borderRadius: const BorderRadius.vertical(
+                                      bottom: Radius.circular(14),
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'IMG ${i + 1}',
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Text(
+                                        formatPesoShort(
+                                          record.frames[i].frameTotalCentavos,
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: c.gold,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 3. VIEW & SAVE PHOTO BUTTON (When an image is selected)
+                  if (_selectedIndex != null) ...[
+                    OutlinedButton.icon(
+                      onPressed: () => _showFullImage(
+                        record.frames[_selectedIndex!].imagePath,
+                      ),
+                      icon: Icon(
+                        Icons.fullscreen,
+                        color: c.textPrimary,
+                        size: 18,
+                      ),
+                      label: Text(
+                        'View & Save Original Photo',
+                        style: TextStyle(color: c.textPrimary),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: c.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+
+                  // 4. DENOMINATION BREAKDOWN TABLE
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _selectedIndex == null
+                            ? 'General Denomination Total'
+                            : 'Image Breakdown',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      if (_selectedIndex != null) ...[
+                        Text(
+                          formatPeso(displayTotal),
+                          style: TextStyle(
+                            color: c.gold,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _ItemsTable(detections: displayDetections),
+
+                  // 5. SEPARATE ITEM CONFIDENCE TABLE (Always shown for All & Per Image)
+                  const SizedBox(height: 16),
+                  _ConfidenceTable(detections: displayDetections),
+
+                  // 6. EXPORT BUTTONS
+                  const SizedBox(height: 32),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ExportButton(
+                          key: const Key('btn-share'),
+                          icon: Icons.ios_share_rounded,
+                          label: 'Share',
+                          busy: _busy == 'share',
+                          enabled: _busy == null,
+                          onTap: () => _run(
+                            'share',
+                            () => _exporter.share(_cardKey, record),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _ExportButton(
+                          key: const Key('btn-save'),
+                          icon: Icons.download_rounded,
+                          label: 'Save',
+                          busy: _busy == 'save',
+                          enabled: _busy == null,
+                          onTap: () => _run(
+                            'save',
+                            () => _exporter.saveToDevice(_cardKey, record),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _ExportButton(
+                          key: const Key('btn-copy'),
+                          icon: Icons.copy_rounded,
+                          label: 'Copy total',
+                          busy: _busy == 'copy',
+                          enabled: _busy == null,
+                          onTap: () =>
+                              _run('copy', () => _exporter.copyTotal(record)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              TextSpan(
-                text: 'Scan',
-                style: TextStyle(color: c.gold),
-              ),
-            ],
+            ),
           ),
         ),
-        const Spacer(),
-        Flexible(
-          child: Text(
-            DateFormat('MMM d, yyyy · hh:mm a').format(when),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-            style: AppText.mono(
-              size: 11,
-              weight: FontWeight.w400,
-              color: c.textMuted,
-            ),
+      ),
+    );
+  }
+}
+
+// --- HELPER COMPONENTS ---
+
+class _StatText extends StatelessWidget {
+  final String value;
+  final String label;
+  const _StatText(this.value, this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            fontSize: 16,
           ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(color: context.colors.textMuted, fontSize: 12),
         ),
       ],
+    );
+  }
+}
+
+/// Denomination Breakdown Table (Clean, without confidence tags)
+class _ItemsTable extends StatelessWidget {
+  final List<Detection> detections;
+  const _ItemsTable({required this.detections});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final text = Theme.of(context).textTheme;
+    final groups = countByClass(detections).entries.toList();
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.border),
+      ),
+      child: Column(
+        children: [
+          Container(
+            color: c.background,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Expanded(child: Text('ITEM / SERIES', style: text.labelSmall)),
+                SizedBox(width: 56, child: Text('QTY', style: text.labelSmall)),
+                SizedBox(
+                  width: 100,
+                  child: Text(
+                    'VALUE',
+                    textAlign: TextAlign.right,
+                    style: text.labelSmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (final (i, e) in groups.indexed)
+            Container(
+              color: i.isEven ? c.surface : c.background,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          e.key.shortValue,
+                          style: TextStyle(
+                            fontFamily: AppFonts.heading,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            color: c.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          '${e.key.design} · ${e.key.typeLabel}',
+                          style: text.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    width: 56,
+                    child: Text(
+                      '×${e.value}',
+                      style: AppText.mono(size: 15, color: c.gold),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 100,
+                    child: Text(
+                      formatPeso(e.key.valueCentavos * e.value),
+                      textAlign: TextAlign.right,
+                      style: AppText.mono(size: 15, color: c.textPrimary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Separate Item Confidence Table matching your reference image
+class _ConfidenceTable extends StatelessWidget {
+  final List<Detection> detections;
+  const _ConfidenceTable({required this.detections});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final text = Theme.of(context).textTheme;
+
+    // Sort items by denomination value (highest to lowest), then by confidence
+    final sorted = List<Detection>.from(detections)
+      ..sort((a, b) {
+        final byVal = b.money.valueCentavos.compareTo(a.money.valueCentavos);
+        if (byVal != 0) {
+          return byVal;
+        }
+        return b.confidence.compareTo(a.confidence);
+      });
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: c.background,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Text('ITEM CONFIDENCE', style: text.labelSmall),
+          ),
+          for (final (i, d) in sorted.indexed)
+            Container(
+              color: i.isEven ? c.surface : c.background,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: d.money.shortValue,
+                            style: TextStyle(
+                              fontFamily: AppFonts.heading,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              color: c.textPrimary,
+                            ),
+                          ),
+                          TextSpan(
+                            text: ' ${d.money.design}',
+                            style: TextStyle(fontSize: 14, color: c.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${(d.confidence * 100).toStringAsFixed(1)}%',
+                    style: AppText.mono(
+                      size: 15,
+                      color: d.confidence >= 0.90
+                          ? c.success
+                          : (d.confidence >= 0.75 ? c.warning : c.danger),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -373,362 +769,6 @@ class _ExportButton extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// The saved photo with a box on every item, modified to take a single frame.
-class _ScanPhoto extends StatefulWidget {
-  final ScanFrame? frame;
-  const _ScanPhoto({required this.frame});
-
-  @override
-  State<_ScanPhoto> createState() => _ScanPhotoState();
-}
-
-class _ScanPhotoState extends State<_ScanPhoto> {
-  File? _file;
-  double? _aspect;
-  ImageStream? _stream;
-  ImageStreamListener? _listener;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadImage();
-  }
-
-  @override
-  void didUpdateWidget(covariant _ScanPhoto oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.frame != widget.frame) {
-      _loadImage();
-    }
-  }
-
-  void _loadImage() {
-    _file = null;
-    _aspect = null;
-    final path = widget.frame?.imagePath;
-    if (path != null && path.isNotEmpty) {
-      final file = File(path);
-      if (file.existsSync()) {
-        setState(() => _file = file);
-        _readPhotoSize(file);
-      }
-    }
-  }
-
-  void _readPhotoSize(File file) {
-    final stream = FileImage(file).resolve(const ImageConfiguration());
-    final listener = ImageStreamListener(
-      (info, _) {
-        if (mounted) {
-          setState(() => _aspect = info.image.width / info.image.height);
-        }
-      },
-      onError: (error, stack) {
-        if (mounted) setState(() => _file = null);
-      },
-    );
-    stream.addListener(listener);
-    _stream = stream;
-    _listener = listener;
-  }
-
-  @override
-  void dispose() {
-    final listener = _listener;
-    if (listener != null) _stream?.removeListener(listener);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final aspect = _aspect ?? 3 / 4;
-
-    // If no frame is selected (meaning they want to see the Grand Total of multiple frames)
-    if (widget.frame == null) {
-      return Container(
-        height: 120,
-        decoration: BoxDecoration(
-          color: context.colors.chip,
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.photo_library_outlined,
-                color: context.colors.textMuted,
-                size: 32,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Select an image below to view details',
-                style: TextStyle(color: context.colors.textMuted),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.5,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: AspectRatio(
-            aspectRatio: aspect,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final mapper = FrameMapper(
-                  area: constraints.biggest,
-                  frameAspect: aspect,
-                );
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (_file != null)
-                      Image.file(_file!, fit: BoxFit.fill)
-                    else
-                      const _NoPhoto(),
-                    for (final d in widget.frame!.detections)
-                      Positioned.fromRect(
-                        rect: mapper.toArea(d.box),
-                        child: _LevelBox(detection: d),
-                      ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NoPhoto extends StatelessWidget {
-  const _NoPhoto();
-
-  @override
-  Widget build(BuildContext context) {
-    const c = PesoColors.dark;
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF0B1A12), Color(0xFF050B08)],
-        ),
-      ),
-      alignment: Alignment.bottomCenter,
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.image_not_supported_outlined,
-            size: 16,
-            color: c.textMuted,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            'No photo saved',
-            style: TextStyle(color: c.textMuted, fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LevelBox extends StatelessWidget {
-  final Detection detection;
-  const _LevelBox({required this.detection});
-
-  @override
-  Widget build(BuildContext context) {
-    const c = PesoColors.dark;
-    final color = switch (detection.level) {
-      ConfidenceLevel.high => c.success,
-      ConfidenceLevel.medium => c.warning,
-      ConfidenceLevel.low => c.danger,
-    };
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: color, width: 1.6),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 4,
-          top: -10,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: Text(
-              detection.money.shortValue,
-              style: AppText.mono(size: 10, color: c.background),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  final int totalCentavos;
-  final int itemCount;
-
-  const _SummaryCard({required this.totalCentavos, required this.itemCount});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final text = Theme.of(context).textTheme;
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: c.border),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('TOTAL VALUE', style: text.labelSmall),
-                const SizedBox(height: 4),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    formatPeso(totalCentavos),
-                    style: AppText.mono(size: 32, color: c.gold),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('ITEMS', style: text.labelSmall),
-              const SizedBox(height: 4),
-              Text(
-                '$itemCount',
-                style: AppText.mono(size: 32, color: c.textPrimary),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ItemsTable extends StatelessWidget {
-  final List<Detection> detections;
-  const _ItemsTable({required this.detections});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final text = Theme.of(context).textTheme;
-    final groups = countByClass(detections).entries.toList();
-
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: c.border),
-      ),
-      child: Column(
-        children: [
-          Container(
-            color: c.background,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                Expanded(child: Text('ITEM', style: text.labelSmall)),
-                SizedBox(width: 56, child: Text('QTY', style: text.labelSmall)),
-                SizedBox(
-                  width: 100,
-                  child: Text(
-                    'VALUE',
-                    textAlign: TextAlign.right,
-                    style: text.labelSmall,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          for (final (i, e) in groups.indexed)
-            Container(
-              color: i.isEven ? c.surface : c.background,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          e.key.shortValue,
-                          style: TextStyle(
-                            fontFamily: AppFonts.heading,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                            color: c.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          '${e.key.design} · ${e.key.typeLabel}',
-                          style: text.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    width: 56,
-                    child: Text(
-                      '×${e.value}',
-                      style: AppText.mono(size: 15, color: c.gold),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 100,
-                    child: Text(
-                      formatPeso(e.key.valueCentavos * e.value),
-                      textAlign: TextAlign.right,
-                      style: AppText.mono(size: 15, color: c.textPrimary),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
       ),
     );
   }
