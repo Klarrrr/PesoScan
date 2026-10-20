@@ -54,7 +54,7 @@ class HomeTab extends StatelessWidget {
                 Expanded(
                   child: _Tile(
                     icon: Icons.menu_book_outlined,
-                    title: 'Currency Guide',
+                    title: 'Currency Guides',
                     subtitle: 'Coins & bills',
                     onTap: () => Navigator.pushNamed(context, AppRoutes.guide),
                   ),
