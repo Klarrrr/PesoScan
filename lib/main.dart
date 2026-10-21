@@ -54,7 +54,7 @@ Future<void> main() async {
     final database = await AppDatabase.open();
     repository = SqliteScanRepository(database.db, userId: () => auth.userId);
   } catch (e) {
-    debugPrint('Database could not be opened, using memory instead: $e');
+    debugPrint('Database could not be opened, use memory instead: $e');
     AppHealth.databaseFailed = true;
     repository = InMemoryScanRepository();
   }
