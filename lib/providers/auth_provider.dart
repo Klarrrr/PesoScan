@@ -42,9 +42,13 @@ class AuthProvider extends ChangeNotifier {
   DateTime? get lastSignIn => _readDate((user) => user.lastSignInAt);
 
   DateTime? _readDate(String? Function(User user) pick) {
-    if (!SupabaseService.isReady) return null;
+    if (!SupabaseService.isReady) {
+      return null;
+    }
     final user = _client.auth.currentUser;
-    if (user == null) return null;
+    if (user == null) {
+      return null;
+    }
     final text = pick(user);
     return text == null ? null : DateTime.tryParse(text);
   }
@@ -77,14 +81,18 @@ class AuthProvider extends ChangeNotifier {
 
     if (SupabaseService.isReady) {
       final user = _client.auth.currentSession?.user;
-      if (user != null) await _remember(user);
+      if (user != null) {
+        await _remember(user);
+      }
       _subscription = _client.auth.onAuthStateChange.listen(_onAuthEvent);
     }
     notifyListeners();
   }
 
   void _onAuthEvent(dynamic data) {
-    if (_signInInProgress) return;
+    if (_signInInProgress) {
+      return;
+    }
     final event = data.event as AuthChangeEvent;
     final user = (data.session as Session?)?.user;
 
@@ -145,9 +153,12 @@ class AuthProvider extends ChangeNotifier {
     required String username,
     required String email,
     required String password,
+    required String captchaToken,
   }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
     try {
       final free = await _client.rpc(
         'username_available',
@@ -161,6 +172,7 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         password: password,
         data: {'username': username},
+        captchaToken: captchaToken,
       );
 
       final identities = response.user?.identities;
@@ -180,11 +192,15 @@ class AuthProvider extends ChangeNotifier {
     required String code,
   }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
 
     final key = 'signup-code:$email';
     final locked = await _limiter.lockRemaining(key);
-    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+    if (locked != null) {
+      return AuthResult.failure(_lockMessage(locked));
+    }
 
     try {
       final res = await _client.auth.verifyOTP(
@@ -210,11 +226,20 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<AuthResult> resendSignupCode(String email) async {
+  Future<AuthResult> resendSignupCode(
+    String email, {
+    String? captchaToken,
+  }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
     try {
-      await _client.auth.resend(type: OtpType.signup, email: email);
+      await _client.auth.resend(
+        type: OtpType.signup,
+        email: email,
+        captchaToken: captchaToken,
+      );
       return const AuthResult.success();
     } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
@@ -222,25 +247,65 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------
-  // Two-step login
+  // Login
+  // ---------------------------------------------------------------
+
+  // ---------------------------------------------------------------
+  // Two-step login (Single CAPTCHA Token)
   // ---------------------------------------------------------------
 
   Future<AuthResult> login({
     required String email,
     required String password,
+    required String captchaToken,
   }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
 
     final key = 'login:$email';
     final locked = await _limiter.lockRemaining(key);
-    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+    if (locked != null) {
+      return AuthResult.failure(_lockMessage(locked));
+    }
 
     _signInInProgress = true;
     try {
-      await _client.auth.signInWithPassword(email: email, password: password);
-      await _client.auth.signOut(scope: SignOutScope.local);
-      await _client.auth.signInWithOtp(email: email, shouldCreateUser: false);
+      // 1. Check email & password via RPC (does NOT consume the captchaToken!)
+      final dynamic check = await _client.rpc(
+        'verify_user_password',
+        params: {'user_email': email, 'user_password': password},
+      );
+
+      final status = (check is Map) ? check['status'] as String? : null;
+
+      if (status == 'invalid_credentials') {
+        _signInInProgress = false;
+        return await _countFailure(key, 'Incorrect email or password.');
+      }
+
+      if (status == 'email_not_confirmed') {
+        // Use the single captchaToken to resend their signup verification code!
+        await _client.auth.resend(
+          type: OtpType.signup,
+          email: email,
+          captchaToken: captchaToken,
+        );
+        _signInInProgress = false;
+        return const AuthResult.failure(
+          'Please verify your email first.',
+          needsEmailVerification: true,
+        );
+      }
+
+      // 2. Password is valid! Now use the single captchaToken to send the 6-digit OTP email.
+      await _client.auth.signInWithOtp(
+        email: email,
+        shouldCreateUser: false,
+        captchaToken: captchaToken,
+      );
+
       await _limiter.reset(key);
       return const AuthResult.success();
     } on AuthException catch (e) {
@@ -266,11 +331,15 @@ class AuthProvider extends ChangeNotifier {
     required String code,
   }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
 
     final key = 'login-code:$email';
     final locked = await _limiter.lockRemaining(key);
-    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+    if (locked != null) {
+      return AuthResult.failure(_lockMessage(locked));
+    }
 
     try {
       final res = await _client.auth.verifyOTP(
@@ -297,37 +366,52 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<AuthResult> resendLoginCode(String email) async {
+  Future<AuthResult> resendLoginCode(
+    String email, {
+    String? captchaToken,
+  }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
     try {
-      await _client.auth.signInWithOtp(email: email, shouldCreateUser: false);
+      await _client.auth.signInWithOtp(
+        email: email,
+        shouldCreateUser: false,
+        captchaToken: captchaToken,
+      );
       return const AuthResult.success();
     } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
     }
   }
 
-  Future<void> signInAsGuest() async {
+  Future<void> signInAsGuest(String captchaToken) async {
     try {
-      // Supabase creates a temporary anonymous account behind the scenes
-      await Supabase.instance.client.auth.signInAnonymously();
+      await Supabase.instance.client.auth.signInAnonymously(
+        captchaToken: captchaToken,
+      );
       notifyListeners();
     } catch (e) {
       debugPrint('Guest login failed: $e');
     }
   }
+
   // ---------------------------------------------------------------
   // Forgot password (NEW in Part 7)
   // ---------------------------------------------------------------
 
-  /// Emails a reset code. (Supabase gives the same answer whether or not
-  /// the email has an account, so nobody can probe for registered emails.)
-  Future<AuthResult> forgotPassword(String email) async {
+  /// Emails a reset code.
+  Future<AuthResult> forgotPassword(String email, String captchaToken) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
     try {
-      await _client.auth.resetPasswordForEmail(email);
+      await _client.auth.resetPasswordForEmail(
+        email,
+        captchaToken: captchaToken,
+      );
       return const AuthResult.success();
     } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
@@ -341,11 +425,15 @@ class AuthProvider extends ChangeNotifier {
     required String code,
   }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
 
     final key = 'recovery-code:$email';
     final locked = await _limiter.lockRemaining(key);
-    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+    if (locked != null) {
+      return AuthResult.failure(_lockMessage(locked));
+    }
 
     _signInInProgress = true;
     try {
@@ -376,24 +464,31 @@ class AuthProvider extends ChangeNotifier {
   /// Also used later by Settings > change password.
   Future<AuthResult> updatePassword(String newPassword) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
     try {
       await _client.auth.updateUser(UserAttributes(password: newPassword));
       _signInInProgress = false;
       final user = _client.auth.currentUser;
-      if (user != null) await _remember(user);
+      if (user != null) {
+        await _remember(user);
+      }
       return const AuthResult.success();
     } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
     }
   }
 
-  /// Checks the password of the signed-in user (needs internet). Used before
-  /// showing private details and before changing the password.
-  /// Wrong passwords are limited: 5 tries, then a 5-minute lock.
-  Future<AuthResult> verifyPassword(String password) async {
+  /// Checks the password of the signed-in user (needs internet).
+  Future<AuthResult> verifyPassword(
+    String password, {
+    String? captchaToken,
+  }) async {
     final notReady = _notReady();
-    if (notReady != null) return notReady;
+    if (notReady != null) {
+      return notReady;
+    }
 
     final email = _email;
     if (email == null || email.isEmpty) {
@@ -402,10 +497,16 @@ class AuthProvider extends ChangeNotifier {
 
     final key = 'verify-password:$email';
     final locked = await _limiter.lockRemaining(key);
-    if (locked != null) return AuthResult.failure(_lockMessage(locked));
+    if (locked != null) {
+      return AuthResult.failure(_lockMessage(locked));
+    }
 
     try {
-      await _client.auth.signInWithPassword(email: email, password: password);
+      await _client.auth.signInWithPassword(
+        email: email,
+        password: password,
+        captchaToken: captchaToken,
+      );
       await _limiter.reset(key);
       return const AuthResult.success();
     } on AuthException catch (e) {
@@ -418,19 +519,26 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Changes the password of the signed-in user. The current password must be
-  /// right. This NEVER signs the user out.
+  /// Changes the password of the signed-in user.
   Future<AuthResult> changePassword({
     required String currentPassword,
     required String newPassword,
+    String? captchaToken,
   }) async {
-    final check = await verifyPassword(currentPassword);
-    if (!check.ok) return check;
+    final check = await verifyPassword(
+      currentPassword,
+      captchaToken: captchaToken,
+    );
+    if (!check.ok) {
+      return check;
+    }
 
     try {
       await _client.auth.updateUser(UserAttributes(password: newPassword));
       final user = _client.auth.currentUser;
-      if (user != null) await _remember(user);
+      if (user != null) {
+        await _remember(user);
+      }
       return const AuthResult.success();
     } catch (e) {
       return AuthResult.failure(friendlyAuthError(e));
@@ -447,8 +555,8 @@ class AuthProvider extends ChangeNotifier {
     if (SupabaseService.isReady) {
       try {
         await _client.auth.signOut(scope: SignOutScope.local);
-      } catch (_) {
-        // No internet: still log out locally below.
+      } catch (e) {
+        debugPrint('Offline logout: $e');
       }
     }
     await _forget();
