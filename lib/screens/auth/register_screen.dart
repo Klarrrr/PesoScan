@@ -9,6 +9,7 @@ import '../../widgets/agreement_field.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_scaffold.dart';
 import '../../widgets/gold_button.dart';
+import '../../widgets/hcaptcha_dialog.dart';
 import 'auth_flows.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -24,9 +25,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
+  final _captchaController = HCaptchaBoxController();
+
   bool _loading = false;
   bool _agreed = false;
   bool _agreementError = false;
+  String? _captchaToken;
   String? _error;
 
   @override
@@ -42,7 +46,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     FocusScope.of(context).unfocus();
     final formOk = _formKey.currentState!.validate();
     setState(() => _agreementError = !_agreed);
-    if (!formOk || !_agreed) return;
+    if (!formOk || !_agreed) {
+      return;
+    }
+
+    final token = _captchaToken;
+    if (token == null) {
+      setState(() => _error = 'Please complete the security verification.');
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -54,16 +66,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
       username: _username.text.trim(),
       email: email,
       password: _password.text,
+      captchaToken: token,
     );
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
+
+    // Reset the inline hCaptcha after submission.
+    _captchaController.reset();
 
     setState(() {
       _loading = false;
-      if (!result.ok) _error = result.message;
+      if (!result.ok) {
+        _error = result.message;
+      }
     });
     if (result.ok) {
       await TermsConsent.accept();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       openSignupVerification(context, email);
     }
   }
@@ -71,6 +93,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final bool canSubmit = !_loading && _captchaToken != null;
 
     return AuthScaffold(
       title: 'Create Account',
@@ -131,7 +154,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   textInputAction: TextInputAction.done,
                   validator: (v) =>
                       Validators.confirmPassword(v, _password.text),
-                  onSubmitted: (_) => _submit(),
+                  onSubmitted: (_) {
+                    if (canSubmit) {
+                      _submit();
+                    }
+                  },
                   enabled: !_loading,
                 ),
               ],
@@ -143,10 +170,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
           agreed: _agreed,
           showError: _agreementError,
           onChanged: (value) {
-            if (!mounted) return;
+            if (!mounted) {
+              return;
+            }
             setState(() {
               _agreed = value;
-              if (value) _agreementError = false;
+              if (value) {
+                _agreementError = false;
+              }
+            });
+          },
+        ),
+        const SizedBox(height: 16),
+        HCaptchaBox(
+          controller: _captchaController,
+          onTokenChanged: (token) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _captchaToken = token;
+              if (token != null) {
+                _error = null;
+              }
             });
           },
         ),
@@ -155,7 +201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           key: const Key('btn-create-account'),
           label: 'Create Account',
           loading: _loading,
-          onPressed: _submit,
+          onPressed: canSubmit ? _submit : null,
         ),
         const SizedBox(height: 12),
         Wrap(

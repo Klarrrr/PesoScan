@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_scaffold.dart';
 import '../../widgets/gold_button.dart';
+import '../../widgets/hcaptcha_dialog.dart';
 import 'auth_flows.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -18,7 +19,10 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
+  final _captchaController = HCaptchaBoxController();
+
   bool _loading = false;
+  String? _captchaToken;
   String? _error;
 
   @override
@@ -29,7 +33,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final token = _captchaToken;
+    if (token == null) {
+      setState(() => _error = 'Please complete the security verification.');
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -37,18 +49,31 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
 
     final email = _email.text.trim().toLowerCase();
-    final result = await context.read<AuthProvider>().forgotPassword(email);
-    if (!mounted) return;
+    final result = await context.read<AuthProvider>().forgotPassword(
+      email,
+      token,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    _captchaController.reset();
 
     setState(() {
       _loading = false;
-      if (!result.ok) _error = result.message;
+      if (!result.ok) {
+        _error = result.message;
+      }
     });
-    if (result.ok) openRecoveryCode(context, email);
+    if (result.ok) {
+      openRecoveryCode(context, email);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool canSubmit = !_loading && _captchaToken != null;
+
     return AuthScaffold(
       title: 'Forgot Password?',
       subtitle:
@@ -71,12 +96,35 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             textInputAction: TextInputAction.done,
             validator: Validators.email,
             autofillHints: const [AutofillHints.email],
-            onSubmitted: (_) => _submit(),
+            onSubmitted: (_) {
+              if (canSubmit) {
+                _submit();
+              }
+            },
             enabled: !_loading,
           ),
         ),
+        const SizedBox(height: 16),
+        HCaptchaBox(
+          controller: _captchaController,
+          onTokenChanged: (token) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _captchaToken = token;
+              if (token != null) {
+                _error = null;
+              }
+            });
+          },
+        ),
         const SizedBox(height: 24),
-        GoldButton(label: 'Send Code', loading: _loading, onPressed: _submit),
+        GoldButton(
+          label: 'Send Code',
+          loading: _loading,
+          onPressed: canSubmit ? _submit : null,
+        ),
       ],
     );
   }
