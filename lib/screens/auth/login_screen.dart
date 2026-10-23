@@ -9,8 +9,9 @@ import '../../services/terms_consent.dart';
 import '../../widgets/agreement_field.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_scaffold.dart';
-import '../../widgets/confirm_dialog.dart'; // Added for the guest confirmation bubble
+import '../../widgets/confirm_dialog.dart';
 import '../../widgets/gold_button.dart';
+import '../../widgets/hcaptcha_dialog.dart';
 import 'auth_flows.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -24,17 +25,21 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _captchaController = HCaptchaBoxController();
+
   bool _loading = false;
   bool _agreed = false;
   bool _agreementError = false;
+  String? _captchaToken;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    // Someone who already agreed on this phone does not have to tick again.
     TermsConsent.isAccepted().then((accepted) {
-      if (mounted && accepted) setState(() => _agreed = true);
+      if (mounted && accepted) {
+        setState(() => _agreed = true);
+      }
     });
   }
 
@@ -49,7 +54,15 @@ class _LoginScreenState extends State<LoginScreen> {
     FocusScope.of(context).unfocus();
     final formOk = _formKey.currentState!.validate();
     setState(() => _agreementError = !_agreed);
-    if (!formOk || !_agreed) return;
+    if (!formOk || !_agreed) {
+      return;
+    }
+
+    final token = _captchaToken;
+    if (token == null) {
+      setState(() => _error = 'Please complete the security verification.');
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -58,21 +71,31 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final auth = context.read<AuthProvider>();
     final email = _email.text.trim().toLowerCase();
-    final result = await auth.login(email: email, password: _password.text);
-    if (!mounted) return;
-
-    if (result.ok) {
-      await TermsConsent.accept();
-      if (!mounted) return;
-      setState(() => _loading = false);
-      openLoginCode(context, email); // the emailed 2-step code comes next
+    final result = await auth.login(
+      email: email,
+      password: _password.text,
+      captchaToken: token,
+    );
+    if (!mounted) {
       return;
     }
 
-    // Account exists but the email was never verified: resend the code.
+    // Reset the "I am human" box after the attempt
+    _captchaController.reset();
+
+    if (result.ok) {
+      await TermsConsent.accept();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _loading = false);
+      openLoginCode(context, email); // Opens the 6-digit MFA code screen
+      return;
+    }
+
+    // Account exists but email was never verified: the signup code was already
+    // resent inside auth.login() using the same token, so go straight to verification!
     if (result.needsEmailVerification) {
-      await auth.resendSignupCode(email);
-      if (!mounted) return;
       setState(() => _loading = false);
       openSignupVerification(context, email);
       return;
@@ -84,8 +107,15 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  // --- NEW: Guest Login Handler ---
-  Future<void> _handleGuestLogin(BuildContext context) async {
+  Future<void> _handleGuestLogin() async {
+    final token = _captchaToken;
+    if (token == null) {
+      setState(
+        () => _error = 'Please complete the security verification first.',
+      );
+      return;
+    }
+
     final proceed = await ConfirmDialog.show(
       context,
       icon: Icons.person_outline_rounded,
@@ -96,24 +126,24 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (proceed == true) {
-      if (!context.mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _loading = true;
         _error = null;
       });
 
-      // 1. Trigger the guest login in your AuthProvider
-      await context.read<AuthProvider>().signInAsGuest();
+      await context.read<AuthProvider>().signInAsGuest(token);
 
-      if (!context.mounted) return;
+      if (!mounted) {
+        return;
+      }
 
-      // 2. Stop the loading spinner
+      _captchaController.reset();
       setState(() => _loading = false);
 
-      // 3. Navigate to the main app screen and clear the back button history
-      // Note: If your main app route is named something else, change AppRoutes.home
-      // to match your setup (e.g., AppRoutes.main or AppRoutes.dashboard)
       Navigator.pushNamedAndRemoveUntil(
         context,
         AppRoutes.home,
@@ -125,14 +155,14 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-
-    // Check if the user came from the Settings tab
-    final bool cameFromSettings = Navigator.canPop(context);
+    final bool canGoBack = Navigator.canPop(context);
+    final bool alreadySignedIn = context.watch<AuthProvider>().isSignedIn;
+    final bool canSubmit = !_loading && _captchaToken != null;
 
     return AuthScaffold(
       title: 'Welcome Back',
       subtitle: 'Log in to continue scanning.',
-      showBack: cameFromSettings,
+      showBack: canGoBack,
       children: [
         if (_error != null) ...[
           ErrorBanner(message: _error!),
@@ -165,7 +195,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   textInputAction: TextInputAction.done,
                   validator: Validators.passwordRequired,
                   autofillHints: const [AutofillHints.password],
-                  onSubmitted: (_) => _submit(),
+                  onSubmitted: (_) {
+                    if (canSubmit) {
+                      _submit();
+                    }
+                  },
                   enabled: !_loading,
                 ),
               ],
@@ -185,10 +219,29 @@ class _LoginScreenState extends State<LoginScreen> {
           agreed: _agreed,
           showError: _agreementError,
           onChanged: (value) {
-            if (!mounted) return;
+            if (!mounted) {
+              return;
+            }
             setState(() {
               _agreed = value;
-              if (value) _agreementError = false;
+              if (value) {
+                _agreementError = false;
+              }
+            });
+          },
+        ),
+        const SizedBox(height: 16),
+        HCaptchaBox(
+          controller: _captchaController,
+          onTokenChanged: (token) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _captchaToken = token;
+              if (token != null) {
+                _error = null;
+              }
             });
           },
         ),
@@ -197,7 +250,7 @@ class _LoginScreenState extends State<LoginScreen> {
           key: const Key('btn-login'),
           label: 'Log In',
           loading: _loading,
-          onPressed: _submit,
+          onPressed: canSubmit ? _submit : null,
         ),
         const SizedBox(height: 20),
         Row(
@@ -221,19 +274,21 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
-
-        // --- MODIFIED: Only show Guest button if they are NOT coming from Settings ---
-        if (!cameFromSettings) ...[
+        if (!alreadySignedIn) ...[
           const SizedBox(height: 8),
           Center(
             child: TextButton(
-              onPressed: _loading ? null : () => _handleGuestLogin(context),
+              onPressed: canSubmit ? _handleGuestLogin : null,
               child: Text(
                 'Sign in as a guest',
                 style: TextStyle(
-                  color: c.textMuted,
+                  color: canSubmit
+                      ? c.textMuted
+                      : c.textMuted.withValues(alpha: 0.4),
                   decoration: TextDecoration.underline,
-                  decorationColor: c.textMuted,
+                  decorationColor: canSubmit
+                      ? c.textMuted
+                      : c.textMuted.withValues(alpha: 0.4),
                 ),
               ),
             ),
