@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_routes.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/auth_result.dart';
+import '../../widgets/hcaptcha_dialog.dart';
 import 'code_entry_screen.dart';
 
 /// Opens the code screen for "verify the email of a new account".
@@ -55,7 +57,17 @@ void openRecoveryCode(BuildContext context, String email) {
           'If an account exists for $email, we sent a 6-digit code. '
           'Enter it to choose a new password.',
       onVerify: (code) => auth.verifyRecoveryCode(email: email, code: code),
-      onResend: () => auth.forgotPassword(email),
+      onResend: () async {
+        final navContext = AppRoutes.navigatorKey.currentContext;
+        if (navContext == null) {
+          return const AuthResult.failure('Could not open verification.');
+        }
+        final token = await HCaptchaDialog.show(navContext);
+        if (token == null) {
+          return const AuthResult.failure('Verification cancelled.');
+        }
+        return await auth.forgotPassword(email, token);
+      },
       onSuccess: (ctx) =>
           Navigator.pushReplacementNamed(ctx, AppRoutes.newPassword),
     ),
