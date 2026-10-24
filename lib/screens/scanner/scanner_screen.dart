@@ -28,7 +28,7 @@ import 'guidance_widgets.dart';
 import 'problem_widgets.dart';
 import 'scanner_widgets.dart';
 import '../../core/frame_mapper.dart';
-import 'scan_result_sheet.dart'; // We will update this file next!
+import 'scan_result_sheet.dart';
 
 class ScannerScreen extends StatelessWidget {
   const ScannerScreen({super.key});
@@ -153,7 +153,6 @@ class _ScannerViewState extends State<_ScannerView>
         setState(() => _torchOn = !_torchOn);
       }
     } catch (e) {
-      // Print the error to the console instead of leaving the catch block empty
       debugPrint('Torch error: $e');
     }
   }
@@ -228,7 +227,6 @@ class _ScannerViewState extends State<_ScannerView>
         return;
       }
 
-      // Pass the file.path into the sheet
       final outcome = await ScanResultSheet.show(
         context,
         scanner.detections,
@@ -303,7 +301,6 @@ class _ScannerViewState extends State<_ScannerView>
         return;
       }
 
-      // Pass the tempPath into the sheet
       final outcome = await ScanResultSheet.show(
         context,
         finalDetections,
@@ -337,7 +334,6 @@ class _ScannerViewState extends State<_ScannerView>
 
       scanner.resetRunningTotal();
 
-      // --- FIX: Check if the screen is still active after deleting the file ---
       if (!mounted) {
         return;
       }
@@ -627,27 +623,10 @@ class _ScannerViewState extends State<_ScannerView>
                       ),
                     ),
                   ),
-
-                  Positioned(
-                    top: MediaQuery.paddingOf(context).top + 8,
-                    right: 16,
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.add_photo_alternate_rounded,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      onPressed: _pickGalleryImage,
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.black45,
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
 
-            // --- RESTORED: Your original bottom layout ---
             Consumer<ScannerProvider>(
               builder: (context, scanner, _) => TotalPanel(
                 totalCentavos: scanner.totalCentavos,
@@ -658,6 +637,7 @@ class _ScannerViewState extends State<_ScannerView>
               builder: (context, scanner, _) {
                 final canCapture = scanner.isLive && !scanner.isFrozen;
                 return ScannerControlBar(
+                  onImportImage: _pickGalleryImage,
                   torchOn: _torchOn,
                   onTorch: _toggleTorch,
                   captureEnabled: canCapture,
