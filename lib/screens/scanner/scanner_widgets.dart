@@ -337,8 +337,9 @@ class TotalPanel extends StatelessWidget {
   }
 }
 
-/// Torch (left), capture (centre), reset (right).
+/// Import image (bottom-left), capture (center), flash + reset (bottom-right).
 class ScannerControlBar extends StatelessWidget {
+  final VoidCallback onImportImage;
   final bool torchOn;
   final VoidCallback onTorch;
   final bool captureEnabled;
@@ -347,6 +348,7 @@ class ScannerControlBar extends StatelessWidget {
 
   const ScannerControlBar({
     super.key,
+    required this.onImportImage,
     required this.torchOn,
     required this.onTorch,
     required this.captureEnabled,
@@ -363,24 +365,47 @@ class ScannerControlBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _CircleButton(
-                key: const Key('btn-torch'),
-                icon: torchOn
-                    ? Icons.flash_on_rounded
-                    : Icons.flash_off_rounded,
-                color: torchOn ? c.gold : c.textSecondary,
-                onTap: onTorch,
+              // Bottom-Left: Import Image button
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _CircleButton(
+                    key: const Key('btn-import-image'),
+                    icon: Icons.photo_library_rounded,
+                    color: c.textSecondary,
+                    onTap: onImportImage,
+                  ),
+                ),
               ),
+
+              // Center: Capture button
               _CaptureButton(enabled: captureEnabled, onTap: onCapture),
-              _CircleButton(
-                key: const Key('btn-reset'),
-                icon: Icons.refresh_rounded,
-                color: c.textSecondary,
-                onTap: onReset,
+
+              // Bottom-Right: Flash and Reset buttons side-by-side
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    _CircleButton(
+                      key: const Key('btn-torch'),
+                      icon: torchOn
+                          ? Icons.flash_on_rounded
+                          : Icons.flash_off_rounded,
+                      color: torchOn ? c.gold : c.textSecondary,
+                      onTap: onTorch,
+                    ),
+                    const SizedBox(width: 10),
+                    _CircleButton(
+                      key: const Key('btn-reset'),
+                      icon: Icons.refresh_rounded,
+                      color: c.textSecondary,
+                      onTap: onReset,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -407,14 +432,14 @@ class _CircleButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 56,
-        height: 56,
+        width: 46,
+        height: 46,
         decoration: BoxDecoration(
           color: const Color(0xFF111B2E),
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
         ),
-        child: Icon(icon, color: color, size: 26),
+        child: Icon(icon, color: color, size: 22),
       ),
     );
   }
