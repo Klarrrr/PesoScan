@@ -16,7 +16,13 @@ class Validators {
   static String? email(String? value) {
     final v = (value ?? '').trim();
     if (v.isEmpty) return 'Enter your email';
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
+
+    // Stricter regex ensuring a valid format and a proper TLD (e.g., .com, .ph)
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
+
+    if (!emailRegex.hasMatch(v)) {
       return 'Enter a valid email address';
     }
     return null;
