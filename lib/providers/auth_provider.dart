@@ -264,7 +264,7 @@ class AuthProvider extends ChangeNotifier {
       return notReady;
     }
 
-    final key = 'login:$email';
+    const key = 'login';
     final locked = await _limiter.lockRemaining(key);
     if (locked != null) {
       return AuthResult.failure(_lockMessage(locked));
@@ -352,7 +352,7 @@ class AuthProvider extends ChangeNotifier {
         return const AuthResult.failure('Could not sign you in. Try again.');
       }
       await _limiter.reset(key);
-      await _limiter.reset('login:$email');
+      await _limiter.reset('login');
       _signInInProgress = false;
       await _remember(user);
       return const AuthResult.success();
