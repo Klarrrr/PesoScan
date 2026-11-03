@@ -428,7 +428,7 @@ class _ScannerViewState extends State<_ScannerView>
       'bill_1000': 100000,
       'bill_50': 5000,
       'bill_500': 50000,
-      'coin_005': 5,
+      // 'coin_005': 5,
       'coin_025': 25,
       'coin_1': 100,
       'coin_10': 1000,
@@ -440,8 +440,6 @@ class _ScannerViewState extends State<_ScannerView>
 
   int _getMoneyId(String className) {
     switch (className) {
-      case 'coin_005':
-        return 1;
       case 'coin_025':
         return 2;
       case 'coin_1':
