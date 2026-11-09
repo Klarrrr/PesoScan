@@ -428,7 +428,7 @@ class _ScannerViewState extends State<_ScannerView>
       'bill_1000': 100000,
       'bill_50': 5000,
       'bill_500': 50000,
-      // 'coin_005' : 5,
+      // 'coin_005':5,
       'coin_025': 25,
       'coin_1': 100,
       'coin_10': 1000,
