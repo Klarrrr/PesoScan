@@ -247,10 +247,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------
-  // Login
-  // ---------------------------------------------------------------
-
-  // ---------------------------------------------------------------
   // Two-step login (Single CAPTCHA Token)
   // ---------------------------------------------------------------
 
@@ -398,7 +394,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------
-  // Forgot password (NEW in Part 7)
+  // Forgot password
   // ---------------------------------------------------------------
 
   /// Emails a reset code.
@@ -480,7 +476,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Checks the password of the signed-in user (needs internet).
+  /// Checks the password of the signed-in user via RPC (no hCaptcha needed).
   Future<AuthResult> verifyPassword(
     String password, {
     String? captchaToken,
@@ -502,16 +498,24 @@ class AuthProvider extends ChangeNotifier {
     }
 
     try {
-      await _client.auth.signInWithPassword(
-        email: email,
-        password: password,
-        captchaToken: captchaToken,
+      final dynamic check = await _client.rpc(
+        'verify_user_password',
+        params: {
+          'user_email': email.trim().toLowerCase(),
+          'user_password': password,
+        },
       );
+
+      final status = (check is Map) ? check['status'] as String? : null;
+
+      if (status == 'invalid_credentials') {
+        return await _countFailure(key, 'Incorrect current password.');
+      }
       await _limiter.reset(key);
       return const AuthResult.success();
     } on AuthException catch (e) {
       if (e.code == 'invalid_credentials') {
-        return _countFailure(key, 'Incorrect password.');
+        return _countFailure(key, 'Incorrect current password.');
       }
       return AuthResult.failure(friendlyAuthError(e));
     } catch (e) {
