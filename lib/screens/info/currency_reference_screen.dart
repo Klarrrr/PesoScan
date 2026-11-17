@@ -23,6 +23,10 @@ class _CurrencyReferenceScreenState extends State<CurrencyReferenceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final supportedCoins = MoneyClasses.coins
+        .where((c) => c.valueCentavos != 5)
+        .toList();
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -38,7 +42,7 @@ class _CurrencyReferenceScreenState extends State<CurrencyReferenceScreen> {
               const SizedBox(height: 14),
               _Tabs(
                 selected: _tab,
-                coinCount: MoneyClasses.coins.length,
+                coinCount: supportedCoins.length,
                 billCount: MoneyClasses.bills.length,
                 onChanged: (i) => setState(() => _tab = i),
               ),
@@ -47,7 +51,10 @@ class _CurrencyReferenceScreenState extends State<CurrencyReferenceScreen> {
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
                   child: _tab == 0
-                      ? const _CoinGrid(key: ValueKey('coins'))
+                      ? _CoinGrid(
+                          key: const ValueKey('coins'),
+                          coins: supportedCoins,
+                        )
                       : const _BillList(key: ValueKey('bills')),
                 ),
               ),
@@ -188,12 +195,11 @@ class _Tabs extends StatelessWidget {
 // ---------------------------------------------------------------- coins
 
 class _CoinGrid extends StatelessWidget {
-  const _CoinGrid({super.key});
+  final List<MoneyClass> coins;
+  const _CoinGrid({super.key, required this.coins});
 
   @override
   Widget build(BuildContext context) {
-    final coins = MoneyClasses.coins;
-
     return GridView.builder(
       padding: const EdgeInsets.only(bottom: 24),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -216,6 +222,7 @@ class _CoinCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final info = referenceFor(money.id);
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
     return Material(
       color: c.surface,
@@ -245,7 +252,7 @@ class _CoinCard extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: AppImage(
-                  AppImages.forClass(money.id),
+                  AppImages.forClass(money.id, isLight: isLight),
                   width: 84,
                   height: 84,
                   fallback: _Fallback(label: money.shortValue, circle: true),
@@ -321,6 +328,7 @@ class _BillRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final info = referenceFor(money.id);
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
     return Material(
       color: c.surface,
@@ -339,7 +347,7 @@ class _BillRow extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: AppImage(
-                  AppImages.forClass(money.id),
+                  AppImages.forClass(money.id, isLight: isLight),
                   width: 128,
                   height: 64, // the pictures are 2:1
                   fallback: _Fallback(label: money.shortValue),
@@ -463,6 +471,7 @@ class _ReferenceSheet extends StatelessWidget {
     final c = context.colors;
     final text = Theme.of(context).textTheme;
     final info = referenceFor(money.id);
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
     return Container(
       decoration: BoxDecoration(
@@ -490,7 +499,7 @@ class _ReferenceSheet extends StatelessWidget {
               const SizedBox(height: 18),
               Center(
                 child: AppImage(
-                  AppImages.forClass(money.id),
+                  AppImages.forClass(money.id, isLight: isLight),
                   width: money.isCoin ? 180 : 280,
                   height: money.isCoin ? 180 : 140,
                   fallback: _Fallback(
@@ -516,16 +525,6 @@ class _ReferenceSheet extends StatelessWidget {
                 info.look,
                 textAlign: TextAlign.center,
                 style: text.bodyLarge,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'App class ${money.id} · model index ${money.yoloIndex}',
-                textAlign: TextAlign.center,
-                style: AppText.mono(
-                  size: 11,
-                  weight: FontWeight.w400,
-                  color: c.textMuted,
-                ),
               ),
               const SizedBox(height: 18),
               GoldButton(

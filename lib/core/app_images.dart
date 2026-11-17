@@ -14,5 +14,7 @@ class AppImages {
 
   /// Reserved for the Currency Reference (Part 18):
   /// class id 1 -> image_6, ... class id 19 -> image_24.
-  static String forClass(int classId) => 'image_${classId + 5}';
+  /// When [isLight] is true, returns e.g. 'image_7_light'.
+  static String forClass(int classId, {bool isLight = false}) =>
+      'image_${classId + 5}${isLight ? '_light' : ''}';
 }
