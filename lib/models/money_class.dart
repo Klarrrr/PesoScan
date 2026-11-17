@@ -56,13 +56,6 @@ class MoneyClasses {
   static const List<MoneyClass> all = [
     // ---- Coins (ids 1 to 10) ----
     MoneyClass(
-      id: 1,
-      valueCentavos: 5,
-      type: MoneyType.coin,
-      design: 'NGC',
-      notes: 'NGC series',
-    ),
-    MoneyClass(
       id: 2,
       valueCentavos: 25,
       type: MoneyType.coin,
