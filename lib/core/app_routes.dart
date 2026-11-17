@@ -20,7 +20,6 @@ import '../screens/settings/account_details_screen.dart';
 import '../screens/settings/change_password_screen.dart';
 import '../screens/shell/main_shell.dart';
 import '../screens/stats/statistics_screen.dart';
-import '../widgets/placeholder_screen.dart';
 
 /// Every screen has a name. Navigate with:
 ///   Navigator.pushNamed(context, AppRoutes.history);
@@ -57,6 +56,7 @@ class AppRoutes {
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     Widget screen;
     switch (settings.name) {
+      case '/':
       case splash:
         screen = const SplashScreen();
       case onboarding:
@@ -79,17 +79,17 @@ class AppRoutes {
         final args = settings.arguments;
         screen = args is CodeEntryArgs
             ? CodeEntryScreen(args: args)
-            : const PlaceholderScreen(title: 'Missing code details');
+            : const LoginScreen();
       case home:
         screen = const MainShell();
       case scanner:
       case scan:
-        screen = const ScannerScreen(); // <-- Restored custom UI class
+        screen = const ScannerScreen();
       case historyDetail:
         final record = settings.arguments;
         screen = record is ScanRecord
             ? ScanDetailScreen(record: record)
-            : const PlaceholderScreen(title: 'Scan not found');
+            : const MainShell();
       case statistics:
         screen = const StatisticsScreen();
       case guide:
@@ -111,7 +111,7 @@ class AppRoutes {
       case dev:
         screen = const DevHomeScreen();
       default:
-        screen = PlaceholderScreen(title: settings.name ?? 'Unknown');
+        screen = const SplashScreen();
     }
     return MaterialPageRoute(builder: (_) => screen, settings: settings);
   }
