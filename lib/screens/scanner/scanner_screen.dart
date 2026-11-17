@@ -2,6 +2,7 @@
 
 import 'dart:io' show Platform, File, Directory;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -177,6 +178,121 @@ class _ScannerViewState extends State<_ScannerView>
     await _tts.speak(text);
   }
 
+  /// Burns the detected bounding boxes and denomination labels directly onto the
+  /// image pixels so the saved History image retains the scan overlays.
+  Future<String> _bakeDetectionsOntoImage(
+    Uint8List sourceBytes,
+    List<Detection> detections,
+    String fallbackPath,
+  ) async {
+    if (detections.isEmpty) {
+      return fallbackPath;
+    }
+
+    try {
+      final codec = await ui.instantiateImageCodec(sourceBytes);
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+      final width = image.width.toDouble();
+      final height = image.height.toDouble();
+
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width, height));
+
+      // 1. Draw the original image
+      canvas.drawImage(image, Offset.zero, Paint());
+
+      // Scale stroke & font proportionally to image resolution
+      final shortSide = width < height ? width : height;
+      final strokeWidth = (shortSide * 0.006).clamp(3.0, 12.0);
+      final cornerRadius = (shortSide * 0.018).clamp(8.0, 24.0);
+      final fontSize = (shortSide * 0.028).clamp(14.0, 42.0);
+
+      final boxPaint = Paint()
+        ..color =
+            const Color(0xFFD4AF37) // PesoScan Gold
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth;
+
+      final pillPaint = Paint()
+        ..color =
+            const Color(0xFF15803D) // Scanner green badge
+        ..style = PaintingStyle.fill;
+
+      for (final d in detections) {
+        final rect = Rect.fromLTRB(
+          (d.box.left * width).clamp(0.0, width),
+          (d.box.top * height).clamp(0.0, height),
+          (d.box.right * width).clamp(0.0, width),
+          (d.box.bottom * height).clamp(0.0, height),
+        );
+
+        // Draw rounded bounding box
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, Radius.circular(cornerRadius)),
+          boxPaint,
+        );
+
+        // Draw denomination label pill above the box
+        final label = d.money.shortValue;
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: label,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: fontSize,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final padX = fontSize * 0.55;
+        final padY = fontSize * 0.25;
+        final pillW = textPainter.width + padX * 2;
+        final pillH = textPainter.height + padY * 2;
+
+        final pillLeft = rect.left.clamp(
+          0.0,
+          (width - pillW).clamp(0.0, width),
+        );
+        final pillTop = (rect.top - pillH - strokeWidth) >= 0
+            ? rect.top - pillH - strokeWidth
+            : rect.top + strokeWidth;
+
+        final pillRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(pillLeft, pillTop, pillW, pillH),
+          Radius.circular(pillH * 0.35),
+        );
+
+        canvas.drawRRect(pillRect, pillPaint);
+        textPainter.paint(canvas, Offset(pillLeft + padX, pillTop + padY));
+      }
+
+      final picture = recorder.endRecording();
+      final bakedImage = await picture.toImage(image.width, image.height);
+      final byteData = await bakedImage.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+
+      image.dispose();
+      bakedImage.dispose();
+
+      if (byteData == null) {
+        return fallbackPath;
+      }
+
+      final bakedFile = File(
+        '${Directory.systemTemp.path}/pesoscan_baked_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await bakedFile.writeAsBytes(byteData.buffer.asUint8List());
+      return bakedFile.path;
+    } catch (e) {
+      debugPrint('Failed to bake bounding boxes onto image: $e');
+      return fallbackPath;
+    }
+  }
+
   Future<void> _pickGalleryImage() async {
     if (!_modelReady) {
       return;
@@ -197,7 +313,7 @@ class _ScannerViewState extends State<_ScannerView>
       final result = await _yolo.predict(bytes);
       final raw = (result as Map)['detections'] as List?;
       final yoloResults =
-          raw?.whereType<Map>().map(YOLOResult.fromMap).toList() ?? [];
+          raw?.whereType().map((m) => YOLOResult.fromMap(m)).toList() ?? [];
 
       final mappedDetections = yoloResults
           .where((yolo) => yolo.className != 'bill_200')
@@ -223,6 +339,13 @@ class _ScannerViewState extends State<_ScannerView>
       FeedbackService.instance.captured(haptic: settings.hapticEnabled);
       _speakTotal(scanner.totalCentavos);
 
+      // Bake bounding boxes onto a new file so we don't overwrite the user's original gallery photo
+      final savedImagePath = await _bakeDetectionsOntoImage(
+        bytes,
+        scanner.detections,
+        file.path,
+      );
+
       if (!mounted) {
         return;
       }
@@ -230,9 +353,13 @@ class _ScannerViewState extends State<_ScannerView>
       final outcome = await ScanResultSheet.show(
         context,
         scanner.detections,
-        file.path,
+        savedImagePath,
       );
-      await _handleSheetOutcome(outcome, file.path, scanner);
+      // Only delete temp path if it's our generated baked file (never delete the original gallery file)
+      final deletableTempPath = savedImagePath != file.path
+          ? savedImagePath
+          : null;
+      await _handleSheetOutcome(outcome, deletableTempPath, scanner);
     } catch (e) {
       if (mounted) {
         await _resumeLive();
@@ -266,7 +393,7 @@ class _ScannerViewState extends State<_ScannerView>
           final result = await _yolo.predict(bytes);
           final raw = (result as Map)['detections'] as List?;
           final yoloResults =
-              raw?.whereType<Map>().map(YOLOResult.fromMap).toList() ?? [];
+              raw?.whereType().map((m) => YOLOResult.fromMap(m)).toList() ?? [];
 
           finalDetections = yoloResults
               .where((yolo) => yolo.className != 'bill_200')
@@ -291,6 +418,19 @@ class _ScannerViewState extends State<_ScannerView>
           scanner.injectAndFreeze(finalDetections);
         } catch (e) {
           debugPrint('Double check prediction failed: $e');
+        }
+
+        // Bake bounding boxes onto the captured image for History
+        final bakedPath = await _bakeDetectionsOntoImage(
+          bytes,
+          finalDetections,
+          tempPath,
+        );
+        if (bakedPath != tempPath) {
+          try {
+            await File(tempPath).delete();
+          } catch (_) {}
+          tempPath = bakedPath;
         }
       }
 
