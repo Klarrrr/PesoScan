@@ -162,7 +162,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return AuthScaffold(
       title: 'Welcome Back',
       subtitle: 'Log in to continue scanning.',
-      showBack: canGoBack,
+      showBack: alreadySignedIn && canGoBack,
       children: [
         if (_error != null) ...[
           ErrorBanner(message: _error!),

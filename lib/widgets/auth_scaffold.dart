@@ -89,7 +89,7 @@ class AuthScaffold extends StatelessWidget {
     final text = Theme.of(context).textTheme;
 
     return Scaffold(
-      appBar: showBack ? AppBar() : null,
+      appBar: showBack ? AppBar(automaticallyImplyLeading: true) : null,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
