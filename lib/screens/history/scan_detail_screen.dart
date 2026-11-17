@@ -113,9 +113,7 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
                         return;
                       }
                       messenger.showSnackBar(
-                        const SnackBar(
-                          content: Text('Original photo saved to Gallery'),
-                        ),
+                        const SnackBar(content: Text('Photo saved to Gallery')),
                       );
                     } catch (e) {
                       if (!mounted) {
@@ -268,12 +266,12 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Scanned Images',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: c.textPrimary,
                         ),
                       ),
                       Text(
@@ -432,10 +430,10 @@ class _ScanDetailScreenState extends State<ScanDetailScreen> {
                         _selectedIndex == null
                             ? 'General Denomination Total'
                             : 'Image Breakdown',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: c.textPrimary,
                         ),
                       ),
                       if (_selectedIndex != null) ...[
@@ -521,22 +519,20 @@ class _StatText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: c.textPrimary,
             fontSize: 16,
           ),
         ),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(color: context.colors.textMuted, fontSize: 12),
-        ),
+        Text(label, style: TextStyle(color: c.textMuted, fontSize: 12)),
       ],
     );
   }
