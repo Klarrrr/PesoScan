@@ -315,25 +315,22 @@ class _ScannerViewState extends State<_ScannerView>
       final yoloResults =
           raw?.whereType().map((m) => YOLOResult.fromMap(m)).toList() ?? [];
 
-      final mappedDetections = yoloResults
-          .where((yolo) => yolo.className != 'bill_200')
-          .map((yolo) {
-            final box = yolo.normalizedBox;
-            final moneyType = yolo.className.startsWith('bill')
-                ? MoneyType.bill
-                : MoneyType.coin;
-            return Detection(
-              money: MoneyClass(
-                id: _getMoneyId(yolo.className),
-                valueCentavos: _parseCentavos(yolo.className),
-                type: moneyType,
-                design: yolo.className,
-              ),
-              confidence: yolo.confidence,
-              box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
-            );
-          })
-          .toList();
+      final mappedDetections = yoloResults.map((yolo) {
+        final box = yolo.normalizedBox;
+        final moneyType = yolo.className.startsWith('bill')
+            ? MoneyType.bill
+            : MoneyType.coin;
+        return Detection(
+          money: MoneyClass(
+            id: _getMoneyId(yolo.className),
+            valueCentavos: _parseCentavos(yolo.className),
+            type: moneyType,
+            design: yolo.className,
+          ),
+          confidence: yolo.confidence,
+          box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+        );
+      }).toList();
 
       scanner.injectAndFreeze(mappedDetections);
       FeedbackService.instance.captured(haptic: settings.hapticEnabled);
@@ -355,7 +352,6 @@ class _ScannerViewState extends State<_ScannerView>
         scanner.detections,
         savedImagePath,
       );
-      // Only delete temp path if it's our generated baked file (never delete the original gallery file)
       final deletableTempPath = savedImagePath != file.path
           ? savedImagePath
           : null;
@@ -395,25 +391,22 @@ class _ScannerViewState extends State<_ScannerView>
           final yoloResults =
               raw?.whereType().map((m) => YOLOResult.fromMap(m)).toList() ?? [];
 
-          finalDetections = yoloResults
-              .where((yolo) => yolo.className != 'bill_200')
-              .map((yolo) {
-                final box = yolo.normalizedBox;
-                final moneyType = yolo.className.startsWith('bill')
-                    ? MoneyType.bill
-                    : MoneyType.coin;
-                return Detection(
-                  money: MoneyClass(
-                    id: _getMoneyId(yolo.className),
-                    valueCentavos: _parseCentavos(yolo.className),
-                    type: moneyType,
-                    design: yolo.className,
-                  ),
-                  confidence: yolo.confidence,
-                  box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
-                );
-              })
-              .toList();
+          finalDetections = yoloResults.map((yolo) {
+            final box = yolo.normalizedBox;
+            final moneyType = yolo.className.startsWith('bill')
+                ? MoneyType.bill
+                : MoneyType.coin;
+            return Detection(
+              money: MoneyClass(
+                id: _getMoneyId(yolo.className),
+                valueCentavos: _parseCentavos(yolo.className),
+                type: moneyType,
+                design: yolo.className,
+              ),
+              confidence: yolo.confidence,
+              box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+            );
+          }).toList();
 
           scanner.injectAndFreeze(finalDetections);
         } catch (e) {
@@ -539,25 +532,22 @@ class _ScannerViewState extends State<_ScannerView>
       return;
     }
 
-    final detections = yoloResults
-        .where((yolo) => yolo.className != 'bill_200')
-        .map((yolo) {
-          final box = yolo.normalizedBox;
-          final moneyType = yolo.className.startsWith('bill')
-              ? MoneyType.bill
-              : MoneyType.coin;
-          return Detection(
-            money: MoneyClass(
-              id: _getMoneyId(yolo.className),
-              valueCentavos: _parseCentavos(yolo.className),
-              type: moneyType,
-              design: yolo.className,
-            ),
-            confidence: yolo.confidence,
-            box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
-          );
-        })
-        .toList();
+    final detections = yoloResults.map((yolo) {
+      final box = yolo.normalizedBox;
+      final moneyType = yolo.className.startsWith('bill')
+          ? MoneyType.bill
+          : MoneyType.coin;
+      return Detection(
+        money: MoneyClass(
+          id: _getMoneyId(yolo.className),
+          valueCentavos: _parseCentavos(yolo.className),
+          type: moneyType,
+          design: yolo.className,
+        ),
+        confidence: yolo.confidence,
+        box: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+      );
+    }).toList();
 
     context.read<ScannerProvider>().updateDetections(detections);
   }
@@ -566,9 +556,9 @@ class _ScannerViewState extends State<_ScannerView>
     const values = <String, int>{
       'bill_100': 10000,
       'bill_1000': 100000,
+      'bill_200': 20000,
       'bill_50': 5000,
       'bill_500': 50000,
-      // 'coin_005':5,
       'coin_025': 25,
       'coin_1': 100,
       'coin_10': 1000,
@@ -598,6 +588,8 @@ class _ScannerViewState extends State<_ScannerView>
         return 18;
       case 'bill_1000':
         return 19;
+      case 'bill_200':
+        return 20;
       default:
         return 1;
     }

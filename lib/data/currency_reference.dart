@@ -81,6 +81,11 @@ const Map<int, ReferenceInfo> referenceInfo = {
     'NGC series (Paper)',
     'Violet note with Manuel A. Roxas, Mayon Volcano, and Whale Shark (Butanding).',
   ),
+  // 20: bill_200_ngc
+  20: ReferenceInfo(
+    'NGC series (Paper)',
+    'Green note with Diosdado Macapagal, Chocolate Hills, and Philippine Tarsier.',
+  ),
   // 14: bill_500_ngc
   14: ReferenceInfo(
     'NGC series (Paper)',

@@ -139,6 +139,12 @@ class MoneyClasses {
       design: 'NGC Series',
     ),
     MoneyClass(
+      id: 20,
+      valueCentavos: 20000,
+      type: MoneyType.bill,
+      design: 'NGC Series',
+    ),
+    MoneyClass(
       id: 14,
       valueCentavos: 50000,
       type: MoneyType.bill,
