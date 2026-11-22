@@ -97,7 +97,7 @@ const Map<int, ReferenceInfo> referenceInfo = {
     'Blue note with Josefa Llanes Escoda, José Abad Santos, and Vicente Lim.',
   ),
 
-  // ---- Bills / Banknotes (Polymer Series) ----
+  // ---- Bills / Banknotes (Polymer Series) -----
   // 16: bill_50_polymer
   16: ReferenceInfo(
     'Polymer',
