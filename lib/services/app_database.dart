@@ -8,7 +8,7 @@ class AppDatabase {
   final Database db;
   AppDatabase._(this.db);
 
-  /// [path] and [factory] can be replaced in tests (in-memory database).
+  /// [path] and [factory] can be replaced in tests  A(in-memory database).
   static Future<AppDatabase> open({
     String? path,
     DatabaseFactory? factory,
